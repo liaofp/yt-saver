@@ -1,0 +1,49 @@
+name: YouTube Downloader
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'YouTube 视频链接'
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install yt-dlp & Dependencies
+        run: |
+          sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
+          sudo chmod a+rx /usr/local/bin/yt-dlp
+          sudo apt-get install jq -y # 用于解析 API 返回的 JSON
+
+      - name: Download Video
+        run: |
+          # 仅下载 MP4 格式，避免合并 MKV 导致无法在某些设备播放
+          yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" "${{ github.event.inputs.video_url }}" -o "video.mp4"
+
+      - name: Upload to GoFile
+        id: upload_gofile
+        run: |
+          echo "正在获取 GoFile 最佳服务器..."
+          SERVER=$(curl -s https://api.gofile.io/servers | jq -r '.data.servers[0].name')
+          
+          echo "正在上传视频至服务器: $SERVER..."
+          RESPONSE=$(curl -F "file=@video.mp4" "https://${SERVER}.gofile.io/contents/uploadfile")
+          
+          # 解析下载链接
+          DOWNLOAD_PAGE=$(echo $RESPONSE | jq -r '.data.downloadPage')
+          echo "-------------------------------------------"
+          echo "视频已安全上传！"
+          echo "下载地址: $DOWNLOAD_PAGE"
+          echo "-------------------------------------------"
+          
+      - name: Self Cleanup
+        if: always()
+        run: |
+          echo "正在执行清理任务，删除本地视频副本..."
+          rm -f video.mp4
+          echo "清理完成。视频仅保留在 GoFile 云端。"
