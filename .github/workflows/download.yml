@@ -1,75 +1,62 @@
-name: YouTube Downloader
+name: YouTube-Expert-Downloader
 
 on:
   workflow_dispatch:
     inputs:
       video_url:
-        description: 'YouTube 视频链接'
+        description: '请输入 YouTube 视频完整 URL'
         required: true
 
 jobs:
-  build:
+  download_and_upload:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: Setup Tools
+      - name: 2. 安装环境 (yt-dlp + ffmpeg + Node.js)
         run: |
-          # 更新 yt-dlp 并安装必要工具
           sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
           sudo chmod a+rx /usr/local/bin/yt-dlp
-          # GitHub Runner 自带 jq，无需重复安装
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg nodejs  # Node.js 用于解析 YouTube JS 加密
 
-      - name: Download Video
+      - name: 3. 注入验证凭据
         run: |
-          echo "开始下载视频..."
-          # 关键点：添加 --user-agent 和 --no-check-certificates 提高成功率
+          # 从 GitHub Secrets 中读取 Cookies 并生成本地文件
+          echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
+
+      - name: 4. 执行极速下载
+        run: |
+          echo "正在解析并下载最高画质 (1080p MP4)..."
+          # --force-ipv4 往往能避开一些 IPv6 的频率限制
           yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
-                 --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+                 --cookies cookies.txt \
+                 --force-ipv4 \
                  --no-check-certificates \
                  "${{ github.event.inputs.video_url }}" -o "video.mp4"
           
-          # 检查文件是否真的下载成功
-          if [ ! -f "video.mp4" ]; then
-            echo "错误: 视频下载失败，请检查 URL 或是否被 YouTube 屏蔽。"
-            exit 1
-          fi
+          if [ ! -f "video.mp4" ]; then echo "下载失败！"; exit 1; fi
 
-      - name: Upload to GoFile
-        id: upload_gofile
+      - name: 5. 上传至 GoFile (外部高速链接)
+        id: gofile
+        continue-on-error: true # 即使 GoFile 挂了，也不影响后续备份
         run: |
-          echo "正在获取 GoFile 服务器..."
-          # 增加重试逻辑
-          SERVER_DATA=$(curl -s https://api.gofile.io/servers)
-          SERVER=$(echo $SERVER_DATA | jq -r '.data.servers[0].name // empty')
-          
-          if [ -z "$SERVER" ]; then
-            echo "无法获取 GoFile 服务器，尝试备用方案..."
-            SERVER="store1" 
-          fi
-          
-          echo "正在上传至服务器: $SERVER..."
-          # 使用更加健壮的上传命令
+          SERVER=$(curl -s https://api.gofile.io/servers | jq -r '.data.servers[0].name // "store1"')
           RESPONSE=$(curl -F "file=@video.mp4" "https://${SERVER}.gofile.io/contents/uploadfile")
-          
-          # 提取下载页
-          DOWNLOAD_PAGE=$(echo $RESPONSE | jq -r '.data.downloadPage')
-          
-          if [ "$DOWNLOAD_PAGE" != "null" ]; then
-            echo "::notice title=Download Link::$DOWNLOAD_PAGE"
-            echo "-------------------------------------------"
-            echo "下载地址: $DOWNLOAD_PAGE"
-            echo "-------------------------------------------"
-          else
-            echo "上传失败，API 返回结果: $RESPONSE"
-            exit 1
-          fi
+          LINK=$(echo $RESPONSE | jq -r '.data.downloadPage')
+          echo "GOFILE_LINK=$LINK" >> $GITHUB_ENV
+          echo "-------------------------------------------"
+          echo "GoFile 下载地址: $LINK"
+          echo "-------------------------------------------"
 
-      - name: GitHub Artifacts Backup
-        if: failure()
+      - name: 6. 备份方案：上传至 GitHub Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: video-backup
+          name: youtube-video-backup
           path: video.mp4
-          retention-days: 1
+          retention-days: 1 # 仅保留1天，节省空间
+
+      - name: 7. 清理敏感数据
+        if: always()
+        run: rm -f cookies.txt video.mp4
