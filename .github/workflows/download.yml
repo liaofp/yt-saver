@@ -1,62 +1,55 @@
-name: YouTube-Expert-Downloader
+name: YouTube-Downloader
 
 on:
   workflow_dispatch:
     inputs:
       video_url:
-        description: '请输入 YouTube 视频完整 URL'
+        description: 'YouTube 视频 URL'
         required: true
 
 jobs:
-  download_and_upload:
+  stealth_download:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 检出仓库
-        uses: actions/checkout@v4
-
-      - name: 2. 安装环境 (yt-dlp + ffmpeg + Node.js)
+      - name: 1. 环境准备
         run: |
           sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
           sudo chmod a+rx /usr/local/bin/yt-dlp
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg nodejs  # Node.js 用于解析 YouTube JS 加密
+          sudo apt-get update && sudo apt-get install -y ffmpeg nodejs
 
-      - name: 3. 注入验证凭据
+      - name: 2. 下载并合并 (最高画质)
         run: |
-          # 从 GitHub Secrets 中读取 Cookies 并生成本地文件
           echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
-
-      - name: 4. 执行极速下载
-        run: |
-          echo "正在解析并下载最高画质 (1080p MP4)..."
-          # --force-ipv4 往往能避开一些 IPv6 的频率限制
-          yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
+          # 模拟 Android/TV 客户端避开 n-challenge 封锁
+          # 自动合并为 mp4 确保通用性
+          yt-dlp -f "bestvideo+bestaudio/best" \
+                 --merge-output-format mp4 \
                  --cookies cookies.txt \
-                 --force-ipv4 \
+                 --extractor-args "youtube:player-client=android,web,tv" \
                  --no-check-certificates \
                  "${{ github.event.inputs.video_url }}" -o "video.mp4"
-          
-          if [ ! -f "video.mp4" ]; then echo "下载失败！"; exit 1; fi
 
-      - name: 5. 上传至 GoFile (外部高速链接)
-        id: gofile
-        continue-on-error: true # 即使 GoFile 挂了，也不影响后续备份
+      - name: 3. 上传至 GoFile (极速外部链接)
+        id: upload_gofile
         run: |
+          # 获取最优服务器并上传
           SERVER=$(curl -s https://api.gofile.io/servers | jq -r '.data.servers[0].name // "store1"')
           RESPONSE=$(curl -F "file=@video.mp4" "https://${SERVER}.gofile.io/contents/uploadfile")
-          LINK=$(echo $RESPONSE | jq -r '.data.downloadPage')
-          echo "GOFILE_LINK=$LINK" >> $GITHUB_ENV
+          DOWNLOAD_LINK=$(echo $RESPONSE | jq -r '.data.downloadPage')
+          
           echo "-------------------------------------------"
-          echo "GoFile 下载地址: $LINK"
+          echo "🚀 视频外链: $DOWNLOAD_LINK"
           echo "-------------------------------------------"
+          # 传递给环境变量，方便后续日志查看
+          echo "DL_LINK=$DOWNLOAD_LINK" >> $GITHUB_ENV
 
-      - name: 6. 备份方案：上传至 GitHub Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: youtube-video-backup
-          path: video.mp4
-          retention-days: 1 # 仅保留1天，节省空间
-
-      - name: 7. 清理敏感数据
+      - name: 4. 彻底清理环境
         if: always()
-        run: rm -f cookies.txt video.mp4
+        run: |
+          echo "执行物理销毁..."
+          rm -f video.mp4 cookies.txt
+          # 清理工作流产生的临时目录
+          rm -rf * echo "GitHub Workspace 已清空。"
+
+      # 注意：此脚本未包含 upload-artifact 步骤
+      # 这样 GitHub Actions 页面就不会留下任何下载附件，彻底做到“阅后即焚”
