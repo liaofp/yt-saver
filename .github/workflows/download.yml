@@ -11,38 +11,37 @@ jobs:
   download:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 强化环境 (强制最新版)
+      - name: 1. 环境加固
         run: |
-          # 卸载旧版并安装最新版 yt-dlp
-          sudo python3 -m pip install -U --force-reinstall yt-dlp
+          sudo python3 -m pip install -U yt-dlp
+          # 安装完整 Node.js 环境，这是解决 n-challenge 的硬件要求
           sudo apt-get update && sudo apt-get install -y ffmpeg nodejs
 
-      - name: 2. 绕过封锁下载
+      - name: 2. 绕过验证并下载 (720p 专攻)
         run: |
           echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
           
-          # 使用 --user-agent 替代 --impersonate-client (兼容性更好)
-          # 强制使用 mweb 客户端，这是目前绕过 n-challenge 最稳的路径
-          yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
+          # 参数解析：
+          # -f 22: 22 是 YouTube 固定的 720p MP4 (带声音) 的单文件编号，成功率最高
+          # --no-video-multistreams: 强制不合并，直接抓取成品文件
+          # --cookies: 必须配合有效的 Cookies
+          yt-dlp -f "22/best[height<=720][ext=mp4]" \
                  --cookies cookies.txt \
-                 --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1" \
-                 --extractor-args "youtube:player-client=mweb,ios" \
                  --no-check-certificates \
                  --force-ipv4 \
+                 --geo-bypass \
                  "${{ github.event.inputs.video_url }}" -o "video.mp4"
+          
+          if [ ! -f "video.mp4" ]; then echo "下载失败！"; exit 1; fi
 
-      - name: 3. 上传至 GoFile 并获取链接
-        id: upload
+      - name: 3. 上传至 GoFile
         run: |
           SERVER=$(curl -s https://api.gofile.io/servers | jq -r '.data.servers[0].name // "store1"')
           RESPONSE=$(curl -F "file=@video.mp4" "https://${SERVER}.gofile.io/contents/uploadfile")
-          LINK=$(echo $RESPONSE | jq -r '.data.downloadPage')
           echo "-------------------------------------------"
-          echo "🚀 下载链接: $LINK"
+          echo "🚀 720p 视频链接: $(echo $RESPONSE | jq -r '.data.downloadPage')"
           echo "-------------------------------------------"
 
-      - name: 4. 彻底物理粉碎 (清理 GitHub)
+      - name: 4. 彻底物理粉碎
         if: always()
-        run: |
-          # 删除所有视频、Cookies 和临时文件
-          rm -rf * echo "GitHub 侧资源已全部清空，未上传任何 Artifact。"
+        run: rm -rf *
