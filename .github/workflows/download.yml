@@ -8,40 +8,44 @@ on:
         required: true
 
 jobs:
-  download:
+  download_job:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 环境加固
+      - name: 1. 强制安装环境 (Node.js + 最新 yt-dlp)
         run: |
           sudo python3 -m pip install -U yt-dlp
-          # 安装完整 Node.js 环境，这是解决 n-challenge 的硬件要求
           sudo apt-get update && sudo apt-get install -y ffmpeg nodejs
+          echo "检查 JS 环境: $(node -v)"
 
-      - name: 2. 绕过验证并下载 (720p 专攻)
+      - name: 2. 绕过封锁并执行下载
         run: |
+          # 写入最新的 Cookies
           echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
           
-          # 参数解析：
-          # -f 22: 22 是 YouTube 固定的 720p MP4 (带声音) 的单文件编号，成功率最高
-          # --no-video-multistreams: 强制不合并，直接抓取成品文件
-          # --cookies: 必须配合有效的 Cookies
+          # 执行下载逻辑：
+          # -f 22: 强制 720p MP4 单文件，绕过音画合并环节，降低 403 风险
+          # --js-runtimes node: 明确告诉程序使用 node 解决 n-challenge
           yt-dlp -f "22/best[height<=720][ext=mp4]" \
                  --cookies cookies.txt \
+                 --js-runtimes node \
                  --no-check-certificates \
                  --force-ipv4 \
-                 --geo-bypass \
                  "${{ github.event.inputs.video_url }}" -o "video.mp4"
           
-          if [ ! -f "video.mp4" ]; then echo "下载失败！"; exit 1; fi
+          if [ ! -f "video.mp4" ]; then echo "错误：视频未下载成功"; exit 1; fi
 
       - name: 3. 上传至 GoFile
         run: |
+          # 获取服务器并上传
           SERVER=$(curl -s https://api.gofile.io/servers | jq -r '.data.servers[0].name // "store1"')
           RESPONSE=$(curl -F "file=@video.mp4" "https://${SERVER}.gofile.io/contents/uploadfile")
+          DOWNLOAD_PAGE=$(echo $RESPONSE | jq -r '.data.downloadPage')
           echo "-------------------------------------------"
-          echo "🚀 720p 视频链接: $(echo $RESPONSE | jq -r '.data.downloadPage')"
+          echo "🚀 成功！下载地址: $DOWNLOAD_PAGE"
           echo "-------------------------------------------"
 
-      - name: 4. 彻底物理粉碎
+      - name: 4. 物理删除残留
         if: always()
-        run: rm -rf *
+        run: |
+          rm -f video.mp4 cookies.txt
+          echo "GitHub 侧资源已清空。"
