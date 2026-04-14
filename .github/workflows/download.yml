@@ -8,48 +8,42 @@ on:
         required: true
 
 jobs:
-  stealth_download:
+  download:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 环境准备
+      - name: 1. 环境初始化
         run: |
+          # 强制安装最新版 yt-dlp 和 Node.js
           sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
           sudo chmod a+rx /usr/local/bin/yt-dlp
           sudo apt-get update && sudo apt-get install -y ffmpeg nodejs
 
-      - name: 2. 下载并合并 (最高画质)
+      - name: 2. 绕过封锁下载
         run: |
           echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
-          # 模拟 Android/TV 客户端避开 n-challenge 封锁
-          # 自动合并为 mp4 确保通用性
-          yt-dlp -f "bestvideo+bestaudio/best" \
-                 --merge-output-format mp4 \
+          
+          # 专家级参数解释：
+          # --impersonate-client chrome: 模拟真实的 Chrome 指纹
+          # --extractor-args: 强制使用 ios 客户端，该客户端目前对 n-challenge 依赖最低
+          # --format: 优先选择 1080p mp4 或最佳画质
+          yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
                  --cookies cookies.txt \
-                 --extractor-args "youtube:player-client=android,web,tv" \
+                 --impersonate-client chrome \
+                 --extractor-args "youtube:player-client=ios,web" \
                  --no-check-certificates \
+                 --force-ipv4 \
                  "${{ github.event.inputs.video_url }}" -o "video.mp4"
 
-      - name: 3. 上传至 GoFile (极速外部链接)
-        id: upload_gofile
+      - name: 3. 上传并输出链接
         run: |
-          # 获取最优服务器并上传
           SERVER=$(curl -s https://api.gofile.io/servers | jq -r '.data.servers[0].name // "store1"')
           RESPONSE=$(curl -F "file=@video.mp4" "https://${SERVER}.gofile.io/contents/uploadfile")
-          DOWNLOAD_LINK=$(echo $RESPONSE | jq -r '.data.downloadPage')
-          
           echo "-------------------------------------------"
-          echo "🚀 视频外链: $DOWNLOAD_LINK"
+          echo "🚀 下载链接: $(echo $RESPONSE | jq -r '.data.downloadPage')"
           echo "-------------------------------------------"
-          # 传递给环境变量，方便后续日志查看
-          echo "DL_LINK=$DOWNLOAD_LINK" >> $GITHUB_ENV
 
-      - name: 4. 彻底清理环境
+      - name: 4. 彻底删除 GitHub 资源
         if: always()
         run: |
-          echo "执行物理销毁..."
-          rm -f video.mp4 cookies.txt
-          # 清理工作流产生的临时目录
-          rm -rf * echo "GitHub Workspace 已清空。"
-
-      # 注意：此脚本未包含 upload-artifact 步骤
-      # 这样 GitHub Actions 页面就不会留下任何下载附件，彻底做到“阅后即焚”
+          # 物理删除视频、Cookies 和所有中间件，确保 GitHub 侧无残留
+          rm -rf * echo "GitHub 侧视频已彻底删除。"
