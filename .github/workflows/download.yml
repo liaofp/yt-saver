@@ -11,39 +11,38 @@ jobs:
   download:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 环境初始化
+      - name: 1. 强化环境 (强制最新版)
         run: |
-          # 强制安装最新版 yt-dlp 和 Node.js
-          sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
-          sudo chmod a+rx /usr/local/bin/yt-dlp
+          # 卸载旧版并安装最新版 yt-dlp
+          sudo python3 -m pip install -U --force-reinstall yt-dlp
           sudo apt-get update && sudo apt-get install -y ffmpeg nodejs
 
       - name: 2. 绕过封锁下载
         run: |
           echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
           
-          # 专家级参数解释：
-          # --impersonate-client chrome: 模拟真实的 Chrome 指纹
-          # --extractor-args: 强制使用 ios 客户端，该客户端目前对 n-challenge 依赖最低
-          # --format: 优先选择 1080p mp4 或最佳画质
+          # 使用 --user-agent 替代 --impersonate-client (兼容性更好)
+          # 强制使用 mweb 客户端，这是目前绕过 n-challenge 最稳的路径
           yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
                  --cookies cookies.txt \
-                 --impersonate-client chrome \
-                 --extractor-args "youtube:player-client=ios,web" \
+                 --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1" \
+                 --extractor-args "youtube:player-client=mweb,ios" \
                  --no-check-certificates \
                  --force-ipv4 \
                  "${{ github.event.inputs.video_url }}" -o "video.mp4"
 
-      - name: 3. 上传并输出链接
+      - name: 3. 上传至 GoFile 并获取链接
+        id: upload
         run: |
           SERVER=$(curl -s https://api.gofile.io/servers | jq -r '.data.servers[0].name // "store1"')
           RESPONSE=$(curl -F "file=@video.mp4" "https://${SERVER}.gofile.io/contents/uploadfile")
+          LINK=$(echo $RESPONSE | jq -r '.data.downloadPage')
           echo "-------------------------------------------"
-          echo "🚀 下载链接: $(echo $RESPONSE | jq -r '.data.downloadPage')"
+          echo "🚀 下载链接: $LINK"
           echo "-------------------------------------------"
 
-      - name: 4. 彻底删除 GitHub 资源
+      - name: 4. 彻底物理粉碎 (清理 GitHub)
         if: always()
         run: |
-          # 物理删除视频、Cookies 和所有中间件，确保 GitHub 侧无残留
-          rm -rf * echo "GitHub 侧视频已彻底删除。"
+          # 删除所有视频、Cookies 和临时文件
+          rm -rf * echo "GitHub 侧资源已全部清空，未上传任何 Artifact。"
