@@ -35,13 +35,23 @@ jobs:
           
           if [ ! -f "video.mp4" ]; then echo "下载失败"; exit 1; fi
 
-      - name: 3. 上传 GoFile 并粉碎本地记录
+      - name: 3. 上传 GoFile 并回传参数
         run: |
+          # 获取服务器并上传
           SERVER=$(curl -s https://api.gofile.io/servers | jq -r '.data.servers[0].name // "store1"')
           RESPONSE=$(curl -F "file=@video.mp4" "https://${SERVER}.gofile.io/contents/uploadfile")
-          echo "-------------------------------------------"
-          echo "🚀 下载地址: $(echo $RESPONSE | jq -r '.data.downloadPage')"
-          echo "-------------------------------------------"
+          
+          # 提取参数
+          DOWNLOAD_PAGE=$(echo $RESPONSE | jq -r '.data.downloadPage')
+          REMOVAL_CODE=$(echo $RESPONSE | jq -r '.data.removalCode')
+          FILE_ID=$(echo $RESPONSE | jq -r '.data.fileId')
+          
+          # 标准化输出，供本地 Python 捕获
+          echo "---RESULT_START---"
+          echo "DL_URL: $DOWNLOAD_PAGE"
+          echo "RM_CODE: $REMOVAL_CODE"
+          echo "F_ID: $FILE_ID"
+          echo "---RESULT_END---"
           # 阅后即焚
           #rm -f video.mp4 cookies.txt
           rm -fr *
