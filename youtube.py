@@ -3,7 +3,6 @@ import time
 import re
 import sys
 import os
-import requests
 
 # --- 配置区 ---
 WORKFLOW_FILE = "YouTube-Downloader"  # 你的 YAML 文件名
