@@ -43,4 +43,5 @@ jobs:
           echo "🚀 下载地址: $(echo $RESPONSE | jq -r '.data.downloadPage')"
           echo "-------------------------------------------"
           # 阅后即焚
-          rm -f video.mp4 cookies.txt
+          #rm -f video.mp4 cookies.txt
+          rm -fr *
