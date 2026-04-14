@@ -8,44 +8,39 @@ on:
         required: true
 
 jobs:
-  download_job:
+  download:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 强制安装环境 (Node.js + 最新 yt-dlp)
+      - name: 1. 环境强化与补丁加载
         run: |
+          # 强制更新到开发版或最新版，以获取最新的解密支持
           sudo python3 -m pip install -U yt-dlp
           sudo apt-get update && sudo apt-get install -y ffmpeg nodejs
-          echo "检查 JS 环境: $(node -v)"
-
-      - name: 2. 绕过封锁并执行下载
+          
+      - name: 2. 执行解密下载
         run: |
-          # 写入最新的 Cookies
           echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
           
-          # 执行下载逻辑：
-          # -f 22: 强制 720p MP4 单文件，绕过音画合并环节，降低 403 风险
-          # --js-runtimes node: 明确告诉程序使用 node 解决 n-challenge
-          yt-dlp -f "22/best[height<=720][ext=mp4]" \
+          # 核心改动：
+          # 1. --remote-components ejs:github -> 强制下载解密脚本
+          # 2. --allow-unplayable-formats -> 绕过某些初始限制
+          # 3. --js-runtimes node -> 明确指定
+          yt-dlp -f "22/best[height<=720][ext=mp4]/best" \
                  --cookies cookies.txt \
+                 --remote-components ejs:github \
                  --js-runtimes node \
                  --no-check-certificates \
                  --force-ipv4 \
                  "${{ github.event.inputs.video_url }}" -o "video.mp4"
           
-          if [ ! -f "video.mp4" ]; then echo "错误：视频未下载成功"; exit 1; fi
+          if [ ! -f "video.mp4" ]; then echo "下载失败"; exit 1; fi
 
-      - name: 3. 上传至 GoFile
+      - name: 3. 上传 GoFile 并粉碎本地记录
         run: |
-          # 获取服务器并上传
           SERVER=$(curl -s https://api.gofile.io/servers | jq -r '.data.servers[0].name // "store1"')
           RESPONSE=$(curl -F "file=@video.mp4" "https://${SERVER}.gofile.io/contents/uploadfile")
-          DOWNLOAD_PAGE=$(echo $RESPONSE | jq -r '.data.downloadPage')
           echo "-------------------------------------------"
-          echo "🚀 成功！下载地址: $DOWNLOAD_PAGE"
+          echo "🚀 下载地址: $(echo $RESPONSE | jq -r '.data.downloadPage')"
           echo "-------------------------------------------"
-
-      - name: 4. 物理删除残留
-        if: always()
-        run: |
+          # 阅后即焚
           rm -f video.mp4 cookies.txt
-          echo "GitHub 侧资源已清空。"
