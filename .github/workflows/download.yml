@@ -6,6 +6,14 @@ on:
       video_url:
         description: 'YouTube 视频 URL'
         required: true
+      download_type:
+        description: '下载类型：video 或 audio'
+        required: false
+        default: 'audio'
+        type: choice
+        options:
+          - video
+          - audio
 
 jobs:
   download:
@@ -20,26 +28,55 @@ jobs:
       - name: 2. 执行解密下载
         run: |
           echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
-          
-          # 核心改动：
-          # 1. --remote-components ejs:github -> 强制下载解密脚本
-          # 2. --allow-unplayable-formats -> 绕过某些初始限制
-          # 3. --js-runtimes node -> 明确指定
-          yt-dlp -f "22/best[height<=720][ext=mp4]/best" \
-                 --cookies cookies.txt \
-                 --remote-components ejs:github \
-                 --js-runtimes node \
-                 --no-check-certificates \
-                 --force-ipv4 \
-                 "${{ github.event.inputs.video_url }}" -o "video.mp4"
-          
-          if [ ! -f "video.mp4" ]; then echo "下载失败"; exit 1; fi
+
+          if [ "${{ github.event.inputs.download_type }}" = "audio" ]; then
+            yt-dlp -f "bestaudio" \
+                   --cookies cookies.txt \
+                   --remote-components ejs:github \
+                   --js-runtimes node \
+                   --no-check-certificates \
+                   --force-ipv4 \
+                   "${{ github.event.inputs.video_url }}" -o "audio.%(ext)s"
+
+            INPUT_FILE=$(ls audio.* 2>/dev/null | head -n1)
+            if [ -z "$INPUT_FILE" ] || [ ! -f "$INPUT_FILE" ]; then
+              echo "下载失败"
+              exit 1
+            fi
+
+            ffmpeg -y -i "$INPUT_FILE" -c:a libopus -b:a 64k -ac 1 "audio.opus"
+            rm -f "$INPUT_FILE"
+            if [ ! -f "audio.opus" ]; then
+              echo "转码失败"
+              exit 1
+            fi
+          else
+            yt-dlp -f "22/best[height<=720][ext=mp4]/best" \
+                   --cookies cookies.txt \
+                   --remote-components ejs:github \
+                   --js-runtimes node \
+                   --no-check-certificates \
+                   --force-ipv4 \
+                   "${{ github.event.inputs.video_url }}" -o "video.mp4"
+
+            if [ ! -f "video.mp4" ]; then
+              echo "下载失败"
+              exit 1
+            fi
+          fi
 
       - name: 3. 上传 GoFile 并回传参数
         run: |
+          # 获取上传文件名
+          if [ "${{ github.event.inputs.download_type }}" = "audio" ]; then
+            UPLOAD_FILE="audio.opus"
+          else
+            UPLOAD_FILE="video.mp4"
+          fi
+
           # 获取服务器并上传
           SERVER=$(curl -s https://api.gofile.io/servers | jq -r '.data.servers[0].name // "store1"')
-          RESPONSE=$(curl -F "file=@video.mp4" "https://${SERVER}.gofile.io/contents/uploadfile")
+          RESPONSE=$(curl -F "file=@${UPLOAD_FILE}" "https://${SERVER}.gofile.io/contents/uploadfile")
           
           # 提取参数
           DOWNLOAD_PAGE=$(echo $RESPONSE | jq -r '.data.downloadPage')

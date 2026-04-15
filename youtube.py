@@ -3,6 +3,7 @@ import time
 import re
 import sys
 import os
+import urllib.request
 
 # --- 配置区 ---
 WORKFLOW_FILE = "YouTube-Downloader"  # 你的 YAML 文件名
@@ -21,23 +22,65 @@ def delete_github_run(run_id):
     print("✅ GitHub 记录已抹除。")
 
 def download_file(url, filename):
-    """将视频从 GoFile 下载到本地"""
-    print(f"📥 正在从 GoFile 下载视频到本地: {filename}...")
-    # 注意：GoFile 的 downloadPage 是一个页面，直接下载需要解析出直链
-    # 这里我们提示用户手动点击或使用更复杂的爬虫，因为 GoFile 有下载节点保护
-    print(f"🔗 请通过此链接下载: {url}")
-    # 专家建议：由于 GoFile 限制，直接流式下载可能被拦截，建议手动点击或调用浏览器
-    if sys.platform == 'darwin':
-        os.system(f"open {url}")
+    """自动解析 GoFile 下载地址并把文件存放到 ~/Downloads。"""
+    print(f"📥 尝试解析 GoFile 直链并下载到: {filename}...")
+    download_dir = os.path.expanduser("~/Downloads")
+    os.makedirs(download_dir, exist_ok=True)
+    local_path = os.path.join(download_dir, filename)
 
-def get_video_stealth(video_url):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    request = urllib.request.Request(url, headers=headers)
+
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            html = response.read().decode('utf-8', errors='ignore')
+    except Exception as exc:
+        print(f"⚠️ 无法访问 GoFile 页面: {exc}")
+        print(f"🔗 请手动访问下载页面: {url}")
+        return
+
+    patterns = [
+        r'href="(https://download\.gofile\.io/download[^\"]+)"',
+        r'href="(https://[a-z0-9\-]+\.gofile\.io/download[^\"]+)"',
+        r'window\.location\.href\s*=\s*"([^"]+)"',
+        r'document\.location\.href\s*=\s*"([^"]+)"',
+        r'"(https://download\.gofile\.io/download[^"]+)"',
+    ]
+
+    direct_url = None
+    for pat in patterns:
+        match = re.search(pat, html)
+        if match:
+            direct_url = match.group(1)
+            break
+
+    if not direct_url:
+        print("⚠️ 未能解析 GoFile 直链，改为输出原始页面地址。")
+        print(f"🔗 请手动访问下载页面: {url}")
+        return
+
+    print(f"🔗 解析到直链: {direct_url}")
+    request = urllib.request.Request(direct_url, headers=headers)
+
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            with open(local_path, 'wb') as out_file:
+                out_file.write(response.read())
+        print(f"✅ 已保存到: {local_path}")
+    except Exception as exc:
+        print(f"⚠️ 下载文件失败: {exc}")
+        print(f"🔗 请手动访问下载页面: {url}")
+
+def get_video_stealth(video_url, download_type='video'):
     # 1. 同步 Cookies
     if os.path.exists(COOKIE_FILE):
         run_command(f"gh secret set YOUTUBE_COOKIES < {COOKIE_FILE}")
 
     # 2. 触发并获取 Run ID
-    print(f"📡 调度任务: {video_url}")
-    run_command(f"gh workflow run {WORKFLOW_FILE} -f video_url=\"{video_url}\"")
+    print(f"📡 调度任务: {video_url} ({download_type})")
+    run_command(f"gh workflow run {WORKFLOW_FILE} -f video_url=\"{video_url}\" -f download_type=\"{download_type}\"")
     time.sleep(5) # 等待 API 更新
     
     # 获取最新的 Run ID
@@ -60,7 +103,8 @@ def get_video_stealth(video_url):
         print(f"✅ 获取链接成功: {gofile_link}")
         
         # 5. 下载到本地
-        download_file(gofile_link, "video_720p.mp4")
+        local_file = "audio.opus" if download_type == "audio" else "video_720p.mp4"
+        download_file(gofile_link, local_file)
         
         # 6. 抹除痕迹
         # 当视频成功“处理”后（此处逻辑为获取链接并尝试开启下载后），删除 GitHub 日志
@@ -70,6 +114,10 @@ def get_video_stealth(video_url):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python3 youtube.py <URL>")
+        print("Usage: python3 youtube.py <URL> [video|audio]")
     else:
-        get_video_stealth(sys.argv[1])
+        download_type = "audio"
+        if len(sys.argv) >= 3 and sys.argv[2].lower() == "video":
+            download_type = "video"
+        get_video_stealth(sys.argv[1], download_type)
+
