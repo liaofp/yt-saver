@@ -22,7 +22,7 @@ jobs:
       - name: 1. 环境强化与补丁加载
         run: |
           # 强制更新到开发版或最新版，以获取最新的解密支持
-          sudo python3 -m pip install -U yt-dlp
+          sudo python3 -m pip install -U yt-dlp requests
           sudo apt-get update && sudo apt-get install -y ffmpeg nodejs
           
       - name: 2. 执行解密下载
@@ -65,30 +65,17 @@ jobs:
             fi
           fi
 
-      - name: 3. 上传 GoFile 并回传参数
+      - name: 3. 上传 Aliyun Drive 并回传参数
         run: |
-          # 获取上传文件名
           if [ "${{ github.event.inputs.download_type }}" = "audio" ]; then
             UPLOAD_FILE="audio.opus"
           else
             UPLOAD_FILE="video.mp4"
           fi
 
-          # 获取服务器并上传
-          SERVER=$(curl -s https://api.gofile.io/servers | jq -r '.data.servers[0].name // "store1"')
-          RESPONSE=$(curl -F "file=@${UPLOAD_FILE}" "https://${SERVER}.gofile.io/contents/uploadfile")
-          
-          # 提取参数
-          DOWNLOAD_PAGE=$(echo $RESPONSE | jq -r '.data.downloadPage')
-          REMOVAL_CODE=$(echo $RESPONSE | jq -r '.data.removalCode')
-          FILE_ID=$(echo $RESPONSE | jq -r '.data.fileId')
-          
-          # 标准化输出，供本地 Python 捕获
-          echo "---RESULT_START---"
-          echo "DL_URL: $DOWNLOAD_PAGE"
-          echo "RM_CODE: $REMOVAL_CODE"
-          echo "F_ID: $FILE_ID"
-          echo "---RESULT_END---"
-          # 阅后即焚
-          #rm -f video.mp4 cookies.txt
+          python3 aliyundrive_upload.py \
+            --input "$UPLOAD_FILE" \
+            --refresh-token "${{ secrets.ALIYUNDRIVE_REFRESH_TOKEN }}"
+
+          # 清理临时文件
           rm -fr *
