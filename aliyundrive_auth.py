@@ -41,6 +41,8 @@ class AliyunDriveAuth:
     def obtain_refresh_token(self, timeout: int = 180) -> str:
         with sync_playwright() as playwright:
             browser = None
+    def obtain_refresh_token(self, timeout: int = 180) -> str:
+        with sync_playwright() as playwright:
             try:
                 # 尝试连接到已运行的 Chrome 浏览器 (假设使用 --remote-debugging-port=9222 启动)
                 print("🔍 尝试连接到已运行的 Chrome 浏览器...")
@@ -84,34 +86,11 @@ class AliyunDriveAuth:
                     raise RuntimeError("请先在浏览器中登录阿里云盘。")
                     
             except Exception as e:
-                print(f"❌ 无法连接到现有 Chrome 浏览器 ({e})，将启动新浏览器。")
-                browser = playwright.chromium.launch(headless=False)
-                page = browser.new_page()
-                page.goto("https://www.aliyundrive.com/")
-                print("📦 请在新打开的浏览器中完成阿里网盘登录。")
-                print("🔄 登录成功后，脚本将自动尝试提取 refresh_token。")
-                
-                found_token = ""
-                start = time.time()
-                while time.time() - start < timeout:
-                    time.sleep(3)
-                    storage = page.evaluate(
-                        "() => ({ local: Object.fromEntries(Object.entries(window.localStorage)), session: Object.fromEntries(Object.entries(window.sessionStorage)) })"
-                    )
-                    found_token = _extract_token_from_storage(storage.get("local", {}))
-                    if not found_token:
-                        found_token = _extract_token_from_storage(storage.get("session", {}))
-                    if found_token:
-                        print("✅ 已找到 refresh_token。")
-                        browser.close()
-                        self.save_refresh_token(found_token)
-                        return found_token
-                    print("等待登录结果并提取 refresh_token...")
-
-                browser.close()
-                raise RuntimeError(
-                    "未在本地存储中找到 refresh_token，请确认已完成登录并重试。"
-                )
+                print(f"❌ 无法连接到现有 Chrome 浏览器 ({e})")
+                print("请确保 Chrome 浏览器已启动并启用远程调试：")
+                print("google-chrome --remote-debugging-port=9222")
+                print("然后在浏览器中打开 https://www.aliyundrive.com/ 并完成登录，再重新运行脚本。")
+                raise RuntimeError("请先启动浏览器并登录阿里云盘。")
 
     def save_refresh_token(self, refresh_token: str) -> None:
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
