@@ -40,10 +40,22 @@ class AliyunDriveAuth:
 
     def obtain_refresh_token(self, timeout: int = 180) -> str:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=False)
-            page = browser.new_page()
-            page.goto("https://www.aliyundrive.com/")
-            print("📦 请在新打开的浏览器中完成阿里网盘登录。")
+            browser = None
+            try:
+                # 尝试连接到已运行的 Chrome 浏览器 (假设使用 --remote-debugging-port=9222 启动)
+                print("🔍 尝试连接到已运行的 Chrome 浏览器...")
+                browser = playwright.chromium.connect_over_cdp("http://localhost:9222")
+                print("✅ 成功连接到现有 Chrome 浏览器。")
+                context = browser.contexts[0]
+                page = context.pages[0] if context.pages else context.new_page()
+                page.goto("https://www.aliyundrive.com/")
+            except Exception as e:
+                print(f"❌ 无法连接到现有 Chrome 浏览器 ({e})，将启动新浏览器。")
+                browser = playwright.chromium.launch(headless=False)
+                page = browser.new_page()
+                page.goto("https://www.aliyundrive.com/")
+                print("📦 请在新打开的浏览器中完成阿里网盘登录。")
+            
             print("🔄 登录成功后，脚本将自动尝试提取 refresh_token。")
 
             found_token = ""
