@@ -52,8 +52,10 @@ class AliyunDriveAuth:
                 
                 # 查找阿里云盘页面
                 aliyun_page = None
+                print("📋 当前打开的页面：")
                 for page in context.pages:
-                    if "aliyundrive.com" in page.url:
+                    print(f"  - {page.url}")
+                    if "alipan.com" in page.url or "aliyundrive.com" in page.url:
                         aliyun_page = page
                         break
                 
@@ -62,7 +64,7 @@ class AliyunDriveAuth:
                     page = aliyun_page
                 else:
                     print("❌ 未找到阿里云盘页面。")
-                    print("请在浏览器中打开 https://www.aliyundrive.com/ 并完成登录，然后重新运行脚本。")
+                    print("请在浏览器中打开 https://www.alipan.com/ 并完成登录，然后重新运行脚本。")
                     browser.close()
                     raise RuntimeError("请先在浏览器中打开并登录阿里云盘。")
                 
@@ -89,7 +91,7 @@ class AliyunDriveAuth:
                 print(f"❌ 无法连接到现有 Chrome 浏览器 ({e})")
                 print("请确保 Chrome 浏览器已启动并启用远程调试：")
                 print("google-chrome --remote-debugging-port=9222")
-                print("然后在浏览器中打开 https://www.aliyundrive.com/ 并完成登录，再重新运行脚本。")
+                print("然后在浏览器中打开 https://www.alipan.com/ 并完成登录，再重新运行脚本。")
                 raise RuntimeError("请先启动浏览器并登录阿里云盘。")
 
     def save_refresh_token(self, refresh_token: str) -> None:
