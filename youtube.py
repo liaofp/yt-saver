@@ -12,7 +12,7 @@ from aliyundrive_client import AliyunDriveClient, AliyunDriveError
 from gofile_client import GofileClient, GofileError
 
 # --- 配置区 ---
-WORKFLOW_FILE = "YouTube-Downloader"
+WORKFLOW_FILE = "download"
 COOKIE_FILE = "cookies.txt"
 CONFIG_DIR = Path.home() / ".config" / "yt-saver"
 CONFIG_FILE = CONFIG_DIR / "aliyundrive.json"
