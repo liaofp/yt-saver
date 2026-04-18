@@ -5,9 +5,11 @@ import sys
 import subprocess
 import time
 from pathlib import Path
+import argparse
 
 from aliyundrive_auth import AliyunDriveAuth
 from aliyundrive_client import AliyunDriveClient, AliyunDriveError
+from gofile_client import GofileClient, GofileError
 
 # --- 配置区 ---
 WORKFLOW_FILE = "YouTube-Downloader"
@@ -126,12 +128,73 @@ def download_aliyun_file(file_id: str, file_name: str, refresh_token: str) -> st
     return str(local_path)
 
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python3 youtube.py <URL> [video|audio]")
+def download_video_local(video_url, download_type='audio'):
+    """本地下载视频"""
+    output_dir = Path.home() / "Downloads"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    if download_type == 'audio':
+        command = [
+            "yt-dlp",
+            "--extract-audio",
+            "--audio-format", "mp3",
+            "--audio-quality", "192K",
+            "-o", str(output_dir / "%(title)s.%(ext)s"),
+            video_url
+        ]
     else:
-        download_type = "audio"
-        if len(sys.argv) >= 3 and sys.argv[2].lower() == "video":
-            download_type = "video"
-        get_video_stealth(sys.argv[1], download_type)
+        command = [
+            "yt-dlp",
+            "-o", str(output_dir / "%(title)s.%(ext)s"),
+            video_url
+        ]
+    
+    if os.path.exists(COOKIE_FILE):
+        command.extend(["--cookies", COOKIE_FILE])
+    
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"下载失败: {result.stderr}")
+    
+    # 从输出中提取文件名
+    lines = result.stdout.split('\n')
+    for line in lines:
+        if '[download] Destination:' in line:
+            dest = line.split('[download] Destination:')[1].strip()
+            return Path(dest)
+    
+    # 如果没找到，查找目录中的最新文件
+    files = list(output_dir.glob("*"))
+    if files:
+        return max(files, key=lambda f: f.stat().st_mtime)
+    raise RuntimeError("无法确定下载的文件")
+
+
+def upload_to_gofile(local_path):
+    """上传到Gofile"""
+    client = GofileClient()
+    info = client.upload_file(str(local_path))
+    print(f"✅ Gofile 上传成功")
+    print(f"下载页面: {info['downloadPage']}")
+    print(f"代码: {info['code']}")
+    return info
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="下载YouTube视频并上传")
+    parser.add_argument("url", help="YouTube视频URL")
+    parser.add_argument("--type", choices=['audio', 'video'], default='audio', help="下载类型")
+    parser.add_argument("--upload-to", choices=['ali', 'gofile'], default='ali', help="上传目的地")
+    args = parser.parse_args()
+    
+    if args.upload_to == 'ali':
+        get_video_stealth(args.url, args.type)
+    elif args.upload_to == 'gofile':
+        try:
+            local_path = download_video_local(args.url, args.type)
+            print(f"✅ 本地下载完成: {local_path}")
+            upload_to_gofile(local_path)
+        except Exception as exc:
+            print(f"❌ 处理失败: {exc}")
+            sys.exit(1)
 
