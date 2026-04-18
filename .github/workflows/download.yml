@@ -22,10 +22,14 @@ jobs:
       - name: 1. 环境强化与补丁加载
         run: |
           # 强制更新到开发版或最新版，以获取最新的解密支持
-          sudo python3 -m pip install -U yt-dlp requests
+          sudo python3 -m pip install -U yt-dlp requests playwright
           sudo apt-get update && sudo apt-get install -y ffmpeg nodejs
           
-      - name: 2. 执行解密下载
+      - name: 2. 安装 Playwright 浏览器
+        run: |
+          playwright install chromium
+          
+      - name: 3. 执行解密下载
         run: |
           echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
 
@@ -65,7 +69,20 @@ jobs:
             fi
           fi
 
-      - name: 3. 上传 Aliyun Drive 并回传参数
+      - name: 4. 上传 Aliyun Drive 并回传参数
+        run: |
+          if [ "${{ github.event.inputs.download_type }}" = "audio" ]; then
+            UPLOAD_FILE="audio.opus"
+          else
+            UPLOAD_FILE="video.mp4"
+          fi
+
+          python3 aliyundrive_upload.py \
+            --input "$UPLOAD_FILE" \
+            --refresh-token "${{ secrets.ALIYUNDRIVE_REFRESH_TOKEN }}"
+
+          # 清理临时文件
+          rm -fr *
         run: |
           if [ "${{ github.event.inputs.download_type }}" = "audio" ]; then
             UPLOAD_FILE="audio.opus"
