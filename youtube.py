@@ -6,7 +6,7 @@ import os
 import urllib.request
 
 # --- 配置区 ---
-WORKFLOW_FILE = "YouTube-Downloader"  # 你的 YAML 文件名
+WORKFLOW_ID_OR_NAME = "YouTube-Downloader"  # 你的 YAML 文件名
 COOKIE_FILE = "cookies.txt"
 # --------------
 
@@ -80,11 +80,11 @@ def get_video_stealth(video_url, download_type='video'):
 
     # 2. 触发并获取 Run ID
     print(f"📡 调度任务: {video_url} ({download_type})")
-    run_command(f"gh workflow run {WORKFLOW_FILE} -f video_url=\"{video_url}\" -f download_type=\"{download_type}\"")
+    run_command(f"gh workflow run {WORKFLOW_ID_OR_NAME} -f video_url=\"{video_url}\" -f download_type=\"{download_type}\"")
     time.sleep(5) # 等待 API 更新
     
     # 获取最新的 Run ID
-    run_id = run_command(f"gh run list --workflow={WORKFLOW_FILE} --limit 1 --json databaseId -q '.[0].databaseId'")
+    run_id = run_command(f"gh run list --workflow={WORKFLOW_ID_OR_NAME} --limit 1 --json databaseId -q '.[0].databaseId'")
     
     if not run_id:
         print("❌ 无法获取任务 ID")
