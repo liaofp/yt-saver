@@ -48,37 +48,55 @@ class AliyunDriveAuth:
                 print("✅ 成功连接到现有 Chrome 浏览器。")
                 context = browser.contexts[0]
                 page = context.pages[0] if context.pages else context.new_page()
-                page.goto("https://www.aliyundrive.com/")
-            except Exception as e:
-                print(f"❌ 无法连接到现有 Chrome 浏览器 ({e})，将启动新浏览器。")
-                browser = playwright.chromium.launch(headless=False)
-                page = browser.new_page()
-                page.goto("https://www.aliyundrive.com/")
-                print("📦 请在新打开的浏览器中完成阿里网盘登录。")
-            
-            print("🔄 登录成功后，脚本将自动尝试提取 refresh_token。")
-
-            found_token = ""
-            start = time.time()
-            while time.time() - start < timeout:
-                time.sleep(3)
+                
+                # 检查是否已登录阿里云盘
                 storage = page.evaluate(
                     "() => ({ local: Object.fromEntries(Object.entries(window.localStorage)), session: Object.fromEntries(Object.entries(window.sessionStorage)) })"
                 )
                 found_token = _extract_token_from_storage(storage.get("local", {}))
                 if not found_token:
                     found_token = _extract_token_from_storage(storage.get("session", {}))
+                
                 if found_token:
-                    print("✅ 已找到 refresh_token。")
+                    print("✅ 已找到 refresh_token，无需重新登录。")
                     browser.close()
                     self.save_refresh_token(found_token)
                     return found_token
-                print("等待登录结果并提取 refresh_token...")
+                else:
+                    print("❌ 未检测到阿里云盘登录状态。")
+                    print("请在浏览器中打开 https://www.aliyundrive.com/ 并完成登录，然后重新运行脚本。")
+                    browser.close()
+                    raise RuntimeError("请先在浏览器中登录阿里云盘。")
+                    
+            except Exception as e:
+                print(f"❌ 无法连接到现有 Chrome 浏览器 ({e})，将启动新浏览器。")
+                browser = playwright.chromium.launch(headless=False)
+                page = browser.new_page()
+                page.goto("https://www.aliyundrive.com/")
+                print("📦 请在新打开的浏览器中完成阿里网盘登录。")
+                print("🔄 登录成功后，脚本将自动尝试提取 refresh_token。")
+                
+                found_token = ""
+                start = time.time()
+                while time.time() - start < timeout:
+                    time.sleep(3)
+                    storage = page.evaluate(
+                        "() => ({ local: Object.fromEntries(Object.entries(window.localStorage)), session: Object.fromEntries(Object.entries(window.sessionStorage)) })"
+                    )
+                    found_token = _extract_token_from_storage(storage.get("local", {}))
+                    if not found_token:
+                        found_token = _extract_token_from_storage(storage.get("session", {}))
+                    if found_token:
+                        print("✅ 已找到 refresh_token。")
+                        browser.close()
+                        self.save_refresh_token(found_token)
+                        return found_token
+                    print("等待登录结果并提取 refresh_token...")
 
-            browser.close()
-            raise RuntimeError(
-                "未在本地存储中找到 refresh_token，请确认已完成登录并重试。"
-            )
+                browser.close()
+                raise RuntimeError(
+                    "未在本地存储中找到 refresh_token，请确认已完成登录并重试。"
+                )
 
     def save_refresh_token(self, refresh_token: str) -> None:
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
