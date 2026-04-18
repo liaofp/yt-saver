@@ -84,7 +84,7 @@ def get_video_stealth(video_url, download_type='audio', branch='main'):
 
     print(f"📡 调度任务: {video_url} ({download_type}) 在分支 {branch}")
     run_command(
-        f"gh workflow run {WORKFLOW_FILE} --ref {branch} -f video_url=\"{video_url}\" -f download_type=\"{download_type}\"",
+        f"gh workflow run {WORKFLOW_ID_OR_NAME} --ref {branch} -f video_url=\"{video_url}\" -f download_type=\"{download_type}\"",
         check=True,
     )
     time.sleep(5)
