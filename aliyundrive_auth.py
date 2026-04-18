@@ -47,7 +47,22 @@ class AliyunDriveAuth:
                 browser = playwright.chromium.connect_over_cdp("http://localhost:9222")
                 print("✅ 成功连接到现有 Chrome 浏览器。")
                 context = browser.contexts[0]
-                page = context.pages[0] if context.pages else context.new_page()
+                
+                # 查找阿里云盘页面
+                aliyun_page = None
+                for page in context.pages:
+                    if "aliyundrive.com" in page.url:
+                        aliyun_page = page
+                        break
+                
+                if aliyun_page:
+                    print("✅ 找到阿里云盘页面，正在检查登录状态...")
+                    page = aliyun_page
+                else:
+                    print("❌ 未找到阿里云盘页面。")
+                    print("请在浏览器中打开 https://www.aliyundrive.com/ 并完成登录，然后重新运行脚本。")
+                    browser.close()
+                    raise RuntimeError("请先在浏览器中打开并登录阿里云盘。")
                 
                 # 检查是否已登录阿里云盘
                 storage = page.evaluate(
@@ -64,7 +79,7 @@ class AliyunDriveAuth:
                     return found_token
                 else:
                     print("❌ 未检测到阿里云盘登录状态。")
-                    print("请在浏览器中打开 https://www.aliyundrive.com/ 并完成登录，然后重新运行脚本。")
+                    print("请在浏览器中完成阿里云盘登录，然后重新运行脚本。")
                     browser.close()
                     raise RuntimeError("请先在浏览器中登录阿里云盘。")
                     
