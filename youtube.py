@@ -12,7 +12,7 @@ from aliyundrive_client import AliyunDriveClient, AliyunDriveError
 from gofile_client import GofileClient, GofileError
 
 # --- 配置区 ---
-WORKFLOW_FILE = "download"
+WORKFLOW_ID_OR_NAME = "YouTube-Downloader"
 COOKIE_FILE = "cookies.txt"
 CONFIG_DIR = Path.home() / ".config" / "yt-saver"
 CONFIG_FILE = CONFIG_DIR / "aliyundrive.json"
@@ -71,7 +71,7 @@ def delete_github_run(run_id):
     print("✅ GitHub 记录已抹除。")
 
 
-def get_video_stealth(video_url, download_type='audio'):
+def get_video_stealth(video_url, download_type='audio', branch='main'):
     refresh_token = ensure_refresh_token()
     try:
         set_github_secret("ALIYUNDRIVE_REFRESH_TOKEN", refresh_token)
@@ -82,15 +82,15 @@ def get_video_stealth(video_url, download_type='audio'):
     if os.path.exists(COOKIE_FILE):
         run_command(f"gh secret set YOUTUBE_COOKIES < {COOKIE_FILE}")
 
-    print(f"📡 调度任务: {video_url} ({download_type})")
+    print(f"📡 调度任务: {video_url} ({download_type}) 在分支 {branch}")
     run_command(
-        f"gh workflow run {WORKFLOW_FILE} -f video_url=\"{video_url}\" -f download_type=\"{download_type}\"",
+        f"gh workflow run {WORKFLOW_FILE} --ref {branch} -f video_url=\"{video_url}\" -f download_type=\"{download_type}\"",
         check=True,
     )
     time.sleep(5)
 
     run_id = run_command(
-        f"gh run list --workflow={WORKFLOW_FILE} --limit 1 --json databaseId -q '.[0].databaseId'"
+        f"gh run list --workflow={WORKFLOW_ID_OR_NAME} --limit 1 --json databaseId -q '.[0].databaseId'"
     )
     if not run_id:
         print("❌ 无法获取任务 ID")
@@ -185,10 +185,11 @@ if __name__ == "__main__":
     parser.add_argument("url", help="YouTube视频URL")
     parser.add_argument("--type", choices=['audio', 'video'], default='audio', help="下载类型")
     parser.add_argument("--upload-to", choices=['ali', 'gofile'], default='ali', help="上传目的地")
+    parser.add_argument("--branch", default='main', help="GitHub Action 运行的分支 (默认: main)")
     args = parser.parse_args()
     
     if args.upload_to == 'ali':
-        get_video_stealth(args.url, args.type)
+        get_video_stealth(args.url, args.type, args.branch)
     elif args.upload_to == 'gofile':
         try:
             local_path = download_video_local(args.url, args.type)
