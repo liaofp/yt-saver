@@ -3,6 +3,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import requests
+import urllib3
+from urllib3.util.retry import Retry
 
 AUTH_URL = "https://auth.aliyundrive.com/v2/account/token"
 API_BASE = "https://api.aliyundrive.com/v2"
@@ -93,6 +95,7 @@ class AliyunDriveClient:
             raise AliyunDriveError(f"上传会话创建失败: {session}")
 
         part_info_for_complete = []
+        http = urllib3.PoolManager(cert_reqs='CERT_NONE')
         with local_path.open("rb") as fp:
             for part in part_info_list:
                 part_number = part["part_number"]
@@ -103,10 +106,11 @@ class AliyunDriveClient:
                 if not chunk:
                     raise AliyunDriveError("读取上传分片失败")
                 put_headers = {"Content-Type": "application/octet-stream"}
-                result = requests.put(upload_url, data=chunk, headers=put_headers, timeout=120, verify=False)
-                if result.status_code not in (200, 201, 204):
+                retry = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+                result = http.request('PUT', upload_url, body=chunk, headers=put_headers, retries=retry)
+                if result.status not in (200, 201, 204):
                     raise AliyunDriveError(
-                        f"上传分片失败: part={part_number} status={result.status_code} body={result.text}"
+                        f"上传分片失败: part={part_number} status={result.status} body={result.data.decode()}"
                     )
                 etag = result.headers.get('ETag', '').strip('"')
                 part_info_for_complete.append({
