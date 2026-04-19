@@ -3,7 +3,6 @@ import os
 import re
 import sys
 import subprocess
-import time
 from pathlib import Path
 import argparse
 
@@ -78,9 +77,10 @@ def get_video_stealth(video_url, download_type='audio', branch='main'):
     except Exception as exc:
         print(f"⚠️ 无法设置 GitHub Secret: {exc}")
         print("请确保当前仓库可使用 gh secret set 命令，并手动创建 ALIYUNDRIVE_REFRESH_TOKEN。")
+        return
 
     if os.path.exists(COOKIE_FILE):
-        run_command(f"gh secret set YOUTUBE_COOKIES < {COOKIE_FILE}")
+        run_command(f"gh secret set YOUTUBE_COOKIES < {COOKIE_FILE}", check=True)
 
     print(f"📡 调度任务: {video_url} ({download_type}) 在分支 {branch}")
     run_command(
@@ -97,9 +97,13 @@ def get_video_stealth(video_url, download_type='audio', branch='main'):
         return
 
     print(f"🚀 任务启动 (ID: {run_id})，等待云端处理...")
-    subprocess.run(["gh", "run", "watch", run_id], check=False)
+    subprocess.run(["gh", "run", "watch", run_id, "--exit-status"], check=False)
 
     logs = run_command(f"gh run view {run_id} --log")
+    if not logs:
+        print("❌ 无法获取运行日志，请检查 gh CLI 或 workflow 权限。")
+        return
+
     file_id, file_name = parse_aliyun_upload_result(logs)
     if not file_id:
         print("❌ 无法从工作流日志中提取 Aliyun Drive 文件 ID，请检查工作流输出。")
@@ -132,7 +136,7 @@ def download_video_local(video_url, download_type='audio'):
     """本地下载视频"""
     output_dir = Path.home() / "Downloads"
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     if download_type == 'audio':
         command = [
             "yt-dlp",
@@ -140,30 +144,28 @@ def download_video_local(video_url, download_type='audio'):
             "--audio-format", "mp3",
             "--audio-quality", "192K",
             "-o", str(output_dir / "%(title)s.%(ext)s"),
-            video_url
+            video_url,
         ]
     else:
         command = [
             "yt-dlp",
             "-o", str(output_dir / "%(title)s.%(ext)s"),
-            video_url
+            video_url,
         ]
-    
+
     if os.path.exists(COOKIE_FILE):
         command.extend(["--cookies", COOKIE_FILE])
-    
+
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"下载失败: {result.stderr}")
-    
-    # 从输出中提取文件名
+
     lines = result.stdout.split('\n')
     for line in lines:
         if '[download] Destination:' in line:
             dest = line.split('[download] Destination:')[1].strip()
             return Path(dest)
-    
-    # 如果没找到，查找目录中的最新文件
+
     files = list(output_dir.glob("*"))
     if files:
         return max(files, key=lambda f: f.stat().st_mtime)
@@ -180,17 +182,20 @@ def upload_to_gofile(local_path):
     return info
 
 
-if __name__ == "__main__":
+def parse_args(argv):
     parser = argparse.ArgumentParser(description="下载YouTube视频并上传")
     parser.add_argument("url", help="YouTube视频URL")
     parser.add_argument("--type", choices=['audio', 'video'], default='audio', help="下载类型")
     parser.add_argument("--upload-to", choices=['ali', 'gofile'], default='ali', help="上传目的地")
     parser.add_argument("--branch", default='main', help="GitHub Action 运行的分支 (默认: main)")
-    args = parser.parse_args()
-    
+    return parser.parse_args(argv[1:])
+
+
+if __name__ == "__main__":
+    args = parse_args(sys.argv)
     if args.upload_to == 'ali':
         get_video_stealth(args.url, args.type, args.branch)
-    elif args.upload_to == 'gofile':
+    else:
         try:
             local_path = download_video_local(args.url, args.type)
             print(f"✅ 本地下载完成: {local_path}")
@@ -198,4 +203,3 @@ if __name__ == "__main__":
         except Exception as exc:
             print(f"❌ 处理失败: {exc}")
             sys.exit(1)
-
