@@ -27,6 +27,9 @@ jobs:
   download:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: 1. 环境强化与补丁加载
         run: |
           # 强制更新到开发版或最新版，以获取最新的解密支持
