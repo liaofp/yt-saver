@@ -7,7 +7,6 @@ import time
 from pathlib import Path
 import argparse
 
-from aliyundrive_auth import AliyunDriveAuth
 from aliyundrive_client import AliyunDriveClient, AliyunDriveError
 from gofile_client import GofileClient, GofileError
 

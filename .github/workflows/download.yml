@@ -33,14 +33,10 @@ jobs:
       - name: 1. 环境强化与补丁加载
         run: |
           # 强制更新到开发版或最新版，以获取最新的解密支持
-          sudo python3 -m pip install -U yt-dlp requests playwright
+          sudo python3 -m pip install -U yt-dlp requests
           sudo apt-get update && sudo apt-get install -y ffmpeg nodejs jq
 
-      - name: 2. 安装 Playwright 浏览器
-        run: |
-          playwright install chromium
-          
-      - name: 3. 执行解密下载
+      - name: 2. 执行解密下载
         run: |
           echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
 
@@ -80,7 +76,7 @@ jobs:
             fi
           fi
 
-      - name: 4. 上传文件
+      - name: 3. 上传文件
         run: |
           if [ "${{ github.event.inputs.download_type }}" = "audio" ]; then
             UPLOAD_FILE="audio.opus"

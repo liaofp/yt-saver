@@ -78,7 +78,7 @@ class AliyunDriveClient:
             "content_hash_name": "none",
             "content_size": file_size
         }
-        return self._post("file/createWithFolders", payload)
+        return self._post("file/create", payload)
 
     def upload_file(self, local_path: str, parent_file_id: str = "root") -> Dict[str, Any]:
         local_path = Path(local_path)
