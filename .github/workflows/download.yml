@@ -45,7 +45,7 @@ jobs:
             yt-dlp -f "bestaudio" \
                    --cookies cookies.txt \
                    --remote-components ejs:github \
-                   --js-runtimes playwright \
+                   --js-runtimes node \
                    --no-check-certificates \
                    --force-ipv4 \
                    "${{ github.event.inputs.video_url }}" -o "audio.%(ext)s"
@@ -66,7 +66,7 @@ jobs:
             yt-dlp -f "22/best[height<=720][ext=mp4]/best" \
                    --cookies cookies.txt \
                    --remote-components ejs:github \
-                   --js-runtimes playwright \
+                   --js-runtimes node \
                    --no-check-certificates \
                    --force-ipv4 \
                    "${{ github.event.inputs.video_url }}" -o "video.mp4"
