@@ -47,13 +47,10 @@ def save_refresh_token(refresh_token: str) -> None:
 
 
 def ensure_refresh_token() -> str:
-    token = load_refresh_token()
-    if token:
-        return token
-
-    auth = AliyunDriveAuth(CONFIG_FILE)
-    token = auth.obtain_refresh_token()
-    save_refresh_token(token)
+    # 每次都交互式输入 refresh token，不保存
+    token = input("请输入阿里云盘 refresh token: ").strip()
+    if not token:
+        raise ValueError("Refresh token 不能为空")
     return token
 
 
