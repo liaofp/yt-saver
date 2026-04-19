@@ -103,7 +103,7 @@ class AliyunDriveClient:
                 if not chunk:
                     raise AliyunDriveError("读取上传分片失败")
                 put_headers = {"Content-Type": "application/octet-stream"}
-                result = requests.put(upload_url, data=chunk, headers=put_headers, timeout=120)
+                result = requests.put(upload_url, data=chunk, headers=put_headers, timeout=120, verify=False)
                 if result.status_code not in (200, 201, 204):
                     raise AliyunDriveError(
                         f"上传分片失败: part={part_number} status={result.status_code} body={result.text}"
