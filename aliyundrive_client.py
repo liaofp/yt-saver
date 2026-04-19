@@ -92,11 +92,13 @@ class AliyunDriveClient:
         if not file_id or not upload_id or not part_info_list:
             raise AliyunDriveError(f"上传会话创建失败: {session}")
 
+        part_info_for_complete = []
         with local_path.open("rb") as fp:
             for part in part_info_list:
                 part_number = part["part_number"]
                 upload_url = part["upload_url"]
-                expected_size = int(part["part_size"])
+                # For single part upload, part_size is the file size
+                expected_size = local_path.stat().st_size
                 chunk = fp.read(expected_size)
                 if not chunk:
                     raise AliyunDriveError("读取上传分片失败")
@@ -106,18 +108,18 @@ class AliyunDriveClient:
                     raise AliyunDriveError(
                         f"上传分片失败: part={part_number} status={result.status_code} body={result.text}"
                     )
+                etag = result.headers.get('ETag', '').strip('"')
+                part_info_for_complete.append({
+                    "part_number": part_number,
+                    "part_size": expected_size,
+                    "etag": etag
+                })
 
         complete_payload = {
             "drive_id": self.get_default_drive_id(),
             "file_id": file_id,
             "upload_id": upload_id,
-            "part_info_list": [
-                {
-                    "part_number": part["part_number"],
-                    "part_size": int(part["part_size"])
-                }
-                for part in part_info_list
-            ]
+            "part_info_list": part_info_for_complete
         }
         self._post("file/complete", complete_payload)
         return {
@@ -143,10 +145,7 @@ class AliyunDriveClient:
             "drive_id": self.get_default_drive_id(),
             "file_id": [file_id]
         }
-        try:
-            self._post("recyclebin/trash", payload)
-        except AliyunDriveError:
-            self._post("file/trash", payload)
+        self._post("recyclebin/trash", payload)
 
     def download_url(self, download_url: str, local_path: str) -> None:
         response = requests.get(download_url, stream=True, timeout=120)
