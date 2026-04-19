@@ -23,7 +23,7 @@ jobs:
         run: |
           # 强制更新到开发版或最新版，以获取最新的解密支持
           sudo python3 -m pip install -U yt-dlp
-          sudo apt-get update && sudo apt-get install -y ffmpeg nodejs
+          sudo apt-get update && sudo apt-get install -y ffmpeg nodejs jq
           
       - name: 2. 执行解密下载
         run: |
