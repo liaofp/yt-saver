@@ -74,9 +74,8 @@ class AliyunDriveClient:
             "parent_file_id": parent_file_id,
             "name": file_name,
             "type": "file",
-            "check_name_mode": "overwrite",
-            "content_hash_name": "none",
-            "content_size": file_size
+            "check_name_mode": "auto_rename",
+            "size": file_size
         }
         return self._post("file/create", payload)
 
