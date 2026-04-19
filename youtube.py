@@ -139,13 +139,8 @@ def get_video_stealth(video_url, download_type='video'):
     watch_result = subprocess.run(
         f"gh run watch {run_id} --exit-status",
         shell=True,
-        capture_output=True,
         text=True,
     )
-    if watch_result.stdout:
-        log_info(watch_result.stdout.strip())
-    if watch_result.stderr:
-        log_info(watch_result.stderr.strip())
     if watch_result.returncode != 0:
         log_info(f"❌ gh run watch 失败，运行 {run_id} 未成功完成。exit={watch_result.returncode}")
         log_info("请检查 GitHub Actions 运行日志以了解失败原因。")
