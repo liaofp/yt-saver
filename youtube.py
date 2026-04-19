@@ -187,14 +187,13 @@ def parse_args(argv):
     parser.add_argument("url", help="YouTube视频URL")
     parser.add_argument("--type", choices=['audio', 'video'], default='audio', help="下载类型")
     parser.add_argument("--upload-to", choices=['ali', 'gofile'], default='ali', help="上传目的地")
-    parser.add_argument("--branch", default='main', help="GitHub Action 运行的分支 (默认: main)")
     return parser.parse_args(argv[1:])
 
 
 if __name__ == "__main__":
     args = parse_args(sys.argv)
     if args.upload_to == 'ali':
-        get_video_stealth(args.url, args.type, args.branch)
+        get_video_stealth(args.url, args.type, 'main')
     else:
         try:
             local_path = download_video_local(args.url, args.type)
