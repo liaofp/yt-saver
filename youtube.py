@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import subprocess
+import time
 from pathlib import Path
 import argparse
 
@@ -64,13 +65,22 @@ def parse_aliyun_upload_result(logs: str):
     return file_id_match.group(1), file_name_match.group(1).strip() if file_name_match else "downloaded_file"
 
 
+def parse_gofile_upload_result(logs: str):
+    download_page_match = re.search(r"GOFILE_DOWNLOAD_PAGE:\s*(.+)", logs)
+    code_match = re.search(r"GOFILE_CODE:\s*(.+)", logs)
+    file_name_match = re.search(r"GOFILE_FILE_NAME:\s*(.+)", logs)
+    if not download_page_match:
+        return None, None, None
+    return download_page_match.group(1).strip(), code_match.group(1).strip() if code_match else None, file_name_match.group(1).strip() if file_name_match else "downloaded_file"
+
+
 def delete_github_run(run_id):
     print(f"🧹 正在彻底删除 GitHub 运行记录 (ID: {run_id})...")
     subprocess.run(["gh", "run", "delete", run_id, "--yes"], check=False)
     print("✅ GitHub 记录已抹除。")
 
 
-def get_video_stealth(video_url, download_type='audio', branch='main'):
+def get_video_stealth(video_url, download_type='audio', branch='main', upload_to='ali'):
     refresh_token = ensure_refresh_token()
     try:
         set_github_secret("ALIYUNDRIVE_REFRESH_TOKEN", refresh_token)
@@ -82,9 +92,9 @@ def get_video_stealth(video_url, download_type='audio', branch='main'):
     if os.path.exists(COOKIE_FILE):
         run_command(f"gh secret set YOUTUBE_COOKIES < {COOKIE_FILE}", check=True)
 
-    print(f"📡 调度任务: {video_url} ({download_type}) 在分支 {branch}")
+    print(f"📡 调度任务: {video_url} ({download_type}) 上传到 {upload_to} 在分支 {branch}")
     run_command(
-        f"gh workflow run {WORKFLOW_ID_OR_NAME} --ref {branch} -f video_url=\"{video_url}\" -f download_type=\"{download_type}\"",
+        f"gh workflow run {WORKFLOW_ID_OR_NAME} --ref {branch} -f video_url=\"{video_url}\" -f download_type=\"{download_type}\" -f upload_to=\"{upload_to}\"",
         check=True,
     )
     time.sleep(5)
@@ -104,19 +114,33 @@ def get_video_stealth(video_url, download_type='audio', branch='main'):
         print("❌ 无法获取运行日志，请检查 gh CLI 或 workflow 权限。")
         return
 
-    file_id, file_name = parse_aliyun_upload_result(logs)
-    if not file_id:
-        print("❌ 无法从工作流日志中提取 Aliyun Drive 文件 ID，请检查工作流输出。")
-        return
+    if upload_to == 'ali':
+        # 阿里云盘逻辑
+        file_id, file_name = parse_aliyun_upload_result(logs)
+        if not file_id:
+            print("❌ 无法从工作流日志中提取 Aliyun Drive 文件 ID，请检查工作流输出。")
+            return
 
-    print(f"✅ Aliyun Drive 上传成功，文件 ID: {file_id}，文件名: {file_name}")
+        print(f"✅ Aliyun Drive 上传成功，文件 ID: {file_id}，文件名: {file_name}")
 
-    try:
-        local_path = download_aliyun_file(file_id, file_name, refresh_token)
-        print(f"✅ 已下载到本地: {local_path}")
-    except Exception as exc:
-        print(f"❌ 下载 Aliyun Drive 文件失败: {exc}")
-        return
+        try:
+            local_path = download_aliyun_file(file_id, file_name, refresh_token)
+            print(f"✅ 已下载到本地: {local_path}")
+        except Exception as exc:
+            print(f"❌ 下载 Aliyun Drive 文件失败: {exc}")
+            return
+    else:
+        # Gofile逻辑
+        download_page, code, file_name = parse_gofile_upload_result(logs)
+        if not download_page:
+            print("❌ 无法从工作流日志中提取 Gofile 信息，请检查工作流输出。")
+            return
+
+        print(f"✅ Gofile 上传成功")
+        print(f"📥 下载页面: {download_page}")
+        if code:
+            print(f"🔑 代码: {code}")
+        print(f"📄 文件名: {file_name}")
 
     delete_github_run(run_id)
 
@@ -187,13 +211,14 @@ def parse_args(argv):
     parser.add_argument("url", help="YouTube视频URL")
     parser.add_argument("--type", choices=['audio', 'video'], default='audio', help="下载类型")
     parser.add_argument("--upload-to", choices=['ali', 'gofile'], default='ali', help="上传目的地")
+    parser.add_argument("--branch", default='main', help="GitHub分支")
     return parser.parse_args(argv[1:])
 
 
 if __name__ == "__main__":
     args = parse_args(sys.argv)
     if args.upload_to == 'ali':
-        get_video_stealth(args.url, args.type, 'main')
+        get_video_stealth(args.url, args.type, args.branch, args.upload_to)
     else:
         try:
             local_path = download_video_local(args.url, args.type)

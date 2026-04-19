@@ -14,6 +14,14 @@ on:
         options:
           - video
           - audio
+      upload_to:
+        description: '上传目的地：ali 或 gofile'
+        required: false
+        default: 'ali'
+        type: choice
+        options:
+          - ali
+          - gofile
 
 jobs:
   download:
@@ -69,7 +77,7 @@ jobs:
             fi
           fi
 
-      - name: 4. 上传 Aliyun Drive 并回传参数
+      - name: 4. 上传文件
         run: |
           if [ "${{ github.event.inputs.download_type }}" = "audio" ]; then
             UPLOAD_FILE="audio.opus"
@@ -77,9 +85,16 @@ jobs:
             UPLOAD_FILE="video.mp4"
           fi
 
-          python3 aliyundrive_upload.py \
-            --input "$UPLOAD_FILE" \
-            --refresh-token "${{ secrets.ALIYUNDRIVE_REFRESH_TOKEN }}"
+          # 根据用户选择上传目的地
+          if [ "${{ github.event.inputs.upload_to }}" = "ali" ]; then
+            echo "📤 上传到阿里云盘"
+            python3 aliyundrive_upload.py \
+              --input "$UPLOAD_FILE" \
+              --refresh-token "${{ secrets.ALIYUNDRIVE_REFRESH_TOKEN }}"
+          else
+            echo "📤 上传到Gofile"
+            python3 gofile_upload.py --input "$UPLOAD_FILE"
+          fi
 
           # 清理临时文件
           rm -fr *
