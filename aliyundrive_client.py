@@ -27,12 +27,12 @@ class AliyunDriveClient:
     def _post(self, endpoint: str, payload: Dict[str, Any]) -> Any:
         url = f"{API_BASE}/{endpoint}"
         response = requests.post(url, json=payload, headers=self._headers(), timeout=60)
-        if response.status_code != 200:
+        if response.status_code not in (200, 201):
             raise AliyunDriveError(
                 f"AliyunDrive API request failed: {endpoint} {response.status_code} {response.text}"
             )
         data = response.json()
-        if data.get("code") not in (0, None):
+        if "code" in data and data["code"] not in (0, "OK"):
             raise AliyunDriveError(f"AliyunDrive API returned error: {data}")
         return data
 
@@ -114,8 +114,7 @@ class AliyunDriveClient:
             "part_info_list": [
                 {
                     "part_number": part["part_number"],
-                    "part_size": int(part["part_size"]),
-                    "crc64": 0
+                    "part_size": int(part["part_size"])
                 }
                 for part in part_info_list
             ]
