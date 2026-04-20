@@ -4,96 +4,47 @@ on:
   workflow_dispatch:
     inputs:
       video_url:
-        description: 'YouTube 视频 URL'
         required: true
       download_type:
-        description: '下载类型：video 或 audio'
-        required: false
         default: 'audio'
         type: choice
-        options:
-          - video
-          - audio
-      upload_to:
-        description: '上传目的地：ali 或 gofile'
+        options: [video, audio]
+      storage_provider:
+        default: 'aliyun'
+      provider_token:
         required: false
-        default: 'ali'
-        type: choice
-        options:
-          - ali
-          - gofile
 
 jobs:
   download:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: 1. 代码检出与环境强化
         uses: actions/checkout@v4
 
-      - name: 1. 环境强化与补丁加载
+      - name: 2. 安装依赖 (强制更新 yt-dlp)
         run: |
-          # 强制更新到开发版或最新版，以获取最新的解密支持
-          sudo python3 -m pip install -U yt-dlp requests
+          sudo python3 -m pip install -U yt-dlp aligo
           sudo apt-get update && sudo apt-get install -y ffmpeg nodejs jq
 
-      - name: 2. 执行解密下载
+      - name: 3. 执行解密下载
         run: |
           echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
-
+          
+          # 严格对齐附件的成功参数
+          COMMON_ARGS="--cookies cookies.txt --remote-components ejs:github --js-runtimes node --no-check-certificates --force-ipv4"
+          
           if [ "${{ github.event.inputs.download_type }}" = "audio" ]; then
-            yt-dlp -f "bestaudio" \
-                   --cookies cookies.txt \
-                   --remote-components ejs:github \
-                   --js-runtimes node \
-                   --no-check-certificates \
-                   --force-ipv4 \
-                   "${{ github.event.inputs.video_url }}" -o "audio.%(ext)s"
-
-            INPUT_FILE=$(ls audio.* 2>/dev/null | head -n1)
-            if [ -z "$INPUT_FILE" ] || [ ! -f "$INPUT_FILE" ]; then
-              echo "下载失败"
-              exit 1
-            fi
-
-            ffmpeg -y -i "$INPUT_FILE" -c:a libopus -b:a 64k -ac 1 "audio.opus"
-            rm -f "$INPUT_FILE"
-            if [ ! -f "audio.opus" ]; then
-              echo "转码失败"
-              exit 1
-            fi
+            yt-dlp $COMMON_ARGS -f "bestaudio" --extract-audio --audio-format opus "${{ github.event.inputs.video_url }}" -o "output.%(ext)s"
           else
-            yt-dlp -f "22/best[height<=720][ext=mp4]/best" \
-                   --cookies cookies.txt \
-                   --remote-components ejs:github \
-                   --js-runtimes node \
-                   --no-check-certificates \
-                   --force-ipv4 \
-                   "${{ github.event.inputs.video_url }}" -o "video.mp4"
-
-            if [ ! -f "video.mp4" ]; then
-              echo "下载失败"
-              exit 1
-            fi
+            yt-dlp $COMMON_ARGS -f "best[height<=720][ext=mp4]/best" "${{ github.event.inputs.video_url }}" -o "output.%(ext)s"
           fi
+          
+          echo "FINAL_FILE=$(ls output.* | head -n 1)" >> $GITHUB_ENV
 
-      - name: 3. 上传文件
+      - name: 4. 动态插件上传
+        env:
+          TOKEN: ${{ github.event.inputs.provider_token }}
+          PROVIDER: ${{ github.event.inputs.storage_provider }}
         run: |
-          if [ "${{ github.event.inputs.download_type }}" = "audio" ]; then
-            UPLOAD_FILE="audio.opus"
-          else
-            UPLOAD_FILE="video.mp4"
-          fi
-
-          # 根据用户选择上传目的地
-          if [ "${{ github.event.inputs.upload_to }}" = "ali" ]; then
-            echo "📤 上传到阿里云盘"
-            python3 aliyundrive_upload.py \
-              --input "$UPLOAD_FILE" \
-              --refresh-token "${{ secrets.ALIYUNDRIVE_REFRESH_TOKEN }}"
-          else
-            echo "📤 上传到Gofile"
-            python3 gofile_upload.py --input "$UPLOAD_FILE"
-          fi
-
-          # 清理临时文件
-          rm -fr *
+          chmod +x ./providers/${PROVIDER}.sh
+          ./providers/${PROVIDER}.sh "$FINAL_FILE" "$TOKEN"
