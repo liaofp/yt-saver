@@ -30,46 +30,39 @@ def run_command(command: str, verbose: bool = False) -> Tuple[str, int]:
     return stdout, result.returncode
 
 def monitor_workflow(branch: str, storage_type: str, token: str, verbose: bool = False) -> None:
-    """
-    强制监控：等待任务完成并执行本地回传/清理 [cite: 2, 4, 5]
-    """
-    print("[*] 正在同步 GitHub Actions 状态...")
-    
+    print("[*] 正在等待 GitHub 任务启动...")
     run_id = None
     for i in range(5):
         time.sleep(3)
-        get_run_cmd = f"gh run list --workflow {os.path.basename(WORKFLOW_FILE)} --branch {branch} --limit 1 --json databaseId,status"
-        stdout, code = run_command(get_run_cmd, verbose)
+        get_run_cmd = f"gh run list --workflow {os.path.basename(WORKFLOW_FILE)} --branch {branch} --limit 1 --json databaseId"
+        stdout, _ = run_command(get_run_cmd, verbose)
         try:
             runs = json.loads(stdout)
             if runs:
                 run_id = runs[0]['databaseId']
                 break
-        except:
-            continue
-            
+        except: continue
+
     if not run_id:
-        print("⚠️ 无法获取运行 ID。")
+        print("❌ 无法追踪任务状态。")
         return
 
-    # 阻塞当前进程直至 GitHub 任务完成 
+    # 1. 实时回显 GitHub 云端进度
     subprocess.run(f"gh run watch {run_id}", shell=True)
 
-    # 核心步骤：抓取日志以获取上传后的文件标识 [cite: 4, 38]
-    print("\n[*] 任务完成，正在分析云端数据以执行回传...")
+    # 2. 任务完成后，获取云端日志
+    print("\n[*] 任务结束，正在回传文件...")
     log_stdout, _ = run_command(f"gh run view {run_id} --log", verbose)
-    
-    # 虚拟配置对象，用于传递下载路径 [cite: 34, 35]
+
+    # 3. 执行本地回传与云端删除
     config = configparser.ConfigParser()
-    config.add_section('Storage')
+    config.add_section('Storage') # 默认为 ~/Downloads [cite: 34]
     
-    # 执行具体的 Provider 回传逻辑 [cite: 36, 37]
     if storage_type == "aliyun":
         provider = AliyunProvider(config)
-        provider.handle_result(log_stdout, token) # 内部会调用 ali.download_file 和 ali.delete_file 
+        provider.handle_result(log_stdout, token) # 此处会触发下载并调用 ali.delete_file [cite: 37]
     elif storage_type == "gofile":
-        provider = GofileProvider(config)
-        provider.handle_result(log_stdout)
+        GofileProvider(config).handle_result(log_stdout)
 
 def setup_args() -> argparse.Namespace:
     """
