@@ -1,17 +1,43 @@
 import requests
 import json
 import os
+import re
 
 class OneDriveClient:
-    def __init__(self, token_json_str):
-        # 1. 解析 rclone 的 JSON 格式
-        try:
-            self.token_data = json.loads(token_json_str)
-            # 有些 rclone token 字段名可能是 token，里面嵌套了 json 字符串，需要二次解析
-            if isinstance(self.token_data.get("token"), str):
-                self.token_data = json.loads(self.token_data["token"])
-        except Exception as e:
-            raise Exception(f"Token JSON 解析失败: {e}")
+    def __init__(self, token_data_raw):
+        """
+        智能解析：支持直接传入 Access Token、JSON 字符串或完整的 Rclone INI 配置
+        """
+        self.access_token = None
+        
+        if not token_data_raw:
+            raise Exception("Token 数据为空")
+
+        # 1. 尝试作为 Rclone INI 格式解析 (提取 token = {...} 这一行)
+        if "[tmp_od]" in token_data_raw or "token =" in token_data_raw:
+            match = re.search(r'token\s*=\s*(\{.*?\})', token_data_raw)
+            if match:
+                token_json_str = match.group(1)
+                try:
+                    self.access_token = json.loads(token_json_str).get("access_token")
+                except:
+                    pass
+
+        # 2. 如果没匹配到，尝试作为纯 JSON 解析
+        if not self.access_token:
+            try:
+                data = json.loads(token_data_raw)
+                # 兼容 rclone 导出的嵌套格式
+                if isinstance(data.get("token"), str):
+                    self.access_token = json.loads(data["token"]).get("access_token")
+                else:
+                    self.access_token = data.get("access_token")
+            except:
+                # 3. 最后实在不行，当作原始字符串处理
+                self.access_token = token_data_raw
+
+        if not self.access_token:
+            raise Exception("无法从输入中提取有效的 Access Token")
 
         self.access_token = self.token_data.get("access_token")
         self.refresh_token = self.token_data.get("refresh_token")
