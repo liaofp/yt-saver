@@ -5,6 +5,9 @@ import os
 import json
 import time  # 导入 time 用于延时重试
 from typing import Optional, Tuple, Literal
+from providers.aliyun import AliyunProvider
+from providers.gofile import GofileProvider
+import configparser
 
 # --- 静态配置 ---
 WORKFLOW_FILE: str = ".github/workflows/download.yml"
@@ -26,19 +29,17 @@ def run_command(command: str, verbose: bool = False) -> Tuple[str, int]:
         
     return stdout, result.returncode
 
-def monitor_workflow(branch: str, verbose: bool = False) -> None:
+def monitor_workflow(branch: str, storage_type: str, token: str, verbose: bool = False) -> None:
     """
-    增强版监控：增加重试机制并确保回显
+    强制监控：等待任务完成并执行本地回传/清理 [cite: 2, 4, 5]
     """
     print("[*] 正在同步 GitHub Actions 状态...")
     
     run_id = None
-    # 增加重试循环，最多等待 15 秒（每 3 秒检查一次）
     for i in range(5):
         time.sleep(3)
-        get_run_cmd = f"gh run list --workflow {os.path.basename(WORKFLOW_FILE)} --branch {branch} --limit 1 --json databaseId,status"
+        get_run_cmd = f"gh run list --workflow {os.path.basename(WORKFLOW_FILE)} --branch {branch} --limit 1 --json databaseId,status" [cite: 3]
         stdout, code = run_command(get_run_cmd, verbose)
-        
         try:
             runs = json.loads(stdout)
             if runs:
@@ -48,18 +49,27 @@ def monitor_workflow(branch: str, verbose: bool = False) -> None:
             continue
             
     if not run_id:
-        print("⚠️ 任务启动较慢，无法即时获取运行 ID。请稍后通过 'gh run list' 手动查看。")
+        print("⚠️ 无法获取运行 ID。")
         return
 
-    print(f"[*] 任务已就绪 (ID: {run_id})，开始实时监控内容...\n" + "-"*30)
+    # 阻塞当前进程直至 GitHub 任务完成 
+    subprocess.run(f"gh run watch {run_id}", shell=True)
+
+    # 核心步骤：抓取日志以获取上传后的文件标识 [cite: 4, 38]
+    print("\n[*] 任务完成，正在分析云端数据以执行回传...")
+    log_stdout, _ = run_command(f"gh run view {run_id} --log", verbose)
     
-    # 关键修复：直接调用系统命令，不捕获输出，让 gh 自行管理终端回显
-    # 使用 gh run view --log 可以看到详细步骤日志
-    # 使用 gh run watch 可以看到进度条
-    watch_cmd = f"gh run watch {run_id}"
+    # 虚拟配置对象，用于传递下载路径 [cite: 34, 35]
+    config = configparser.ConfigParser()
+    config.add_section('Storage')
     
-    # 在 Python 中，不带 capture_output 的 subprocess.run 会直接把子进程输出打印到当前终端
-    subprocess.run(watch_cmd, shell=True)
+    # 执行具体的 Provider 回传逻辑 [cite: 36, 37]
+    if storage_type == "aliyun":
+        provider = AliyunProvider(config)
+        provider.handle_result(log_stdout, token) # 内部会调用 ali.download_file 和 ali.delete_file 
+    elif storage_type == "gofile":
+        provider = GofileProvider(config)
+        provider.handle_result(log_stdout)
 
 def setup_args() -> argparse.Namespace:
     """
@@ -86,11 +96,11 @@ def setup_args() -> argparse.Namespace:
         action="store_true", 
         help="启用详细调试日志"
     )
-    debug_group.add_argument(
-        "-w", "--watch",
-        action="store_true",
-        help="启动后阻塞并实时监控工作流进度"
-    )
+    # debug_group.add_argument(
+    #     "-w", "--watch",
+    #     action="store_true",
+    #     help="启动后阻塞并实时监控工作流进度"
+    # )
 
     # 3. 下载与存储配置
     parser.add_argument(
@@ -142,12 +152,12 @@ def trigger_github_action(args: argparse.Namespace) -> None:
 
     if code == 0:
         print(f"🚀 成功：已在分支 '{args.branch}' 上触发任务。")
-        # 如果设置了监控标志，执行监控逻辑
-        if args.watch:
-            monitor_workflow(args.branch, args.verbose)
+        # 强制执行监控与回传逻辑，不再检查 args.watch 
+        monitor_workflow(args.branch, args.storage, args.token, args.verbose)
     else:
         print(f"❌ 失败：无法触发 Actions。")
         sys.exit(1)
+
 
 def main() -> None:
     args = setup_args()

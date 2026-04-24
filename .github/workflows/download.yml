@@ -53,3 +53,12 @@ jobs:
         run: |
           chmod +x ./providers/${PROVIDER}.sh
           ./providers/${PROVIDER}.sh "$FINAL_FILE" "$TOKEN"
+
+      - name: 5. 自动清理 GitHub 空间
+        if: always() 
+        run: |
+          echo "[*] 正在执行安全清理..."
+          rm -f cookies.txt          # 删除包含账号凭证的 Cookie [cite: 9, 42]
+          rm -f output.* # 删除下载的媒体文件 [cite: 43]
+          rm -rf ./*.part            # 删除可能的下载缓存
+          echo "✅ 数据已清理，无残留。"
