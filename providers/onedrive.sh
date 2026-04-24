@@ -4,7 +4,8 @@
 # ==========================================
 
 FILE_PATH="$1"
-OD_TOKEN_JSON="$TOKEN"
+# 此时 OD_CONFIG 包含的是完整的 ini 内容
+OD_CONFIG="$TOKEN"
 CONF_PATH="/tmp/rclone_tmp.conf"
 
 if [ ! -f "$FILE_PATH" ]; then
@@ -12,51 +13,24 @@ if [ ! -f "$FILE_PATH" ]; then
     exit 1
 fi
 
-# 1. 尝试安装/检查 rclone
-if ! command -v rclone &> /dev/null; then
-    curl https://rclone.org/install.sh | sudo bash
-fi
+# 1. 直接将完整的配置写入临时文件
+echo "$OD_CONFIG" > "$CONF_PATH"
 
-# 2. 关键修复：从 Token JSON 中提取 drive_id (如果存在) 并生成基础配置
-# 如果 rclone token 是完整的，它可能已经包含了 drive_id
-mkdir -p ~/.config/rclone
+# 2. 这里的 [onedrive] 必须与你本地 config show 出来的中括号名称一致
+# 建议在写入时统一强制修改中括号名称为 tmp_od 以便脚本后续调用
+sed -i 's/\[.*\]/\[tmp_od\]/' "$CONF_PATH"
 
-# 先写一个基础配置
-cat <<EOF > "$CONF_PATH"
-[tmp_od]
-type = onedrive
-token = $OD_TOKEN_JSON
-EOF
+echo "[*] 开始上传 (使用完整本地配置)..."
 
-echo "[*] 正在自动检索 OneDrive 驱动器信息..."
+# 3. 执行上传
+rclone --config "$CONF_PATH" copy "$FILE_PATH" tmp_od:uploads/ -v
 
-# 3. 自动补全配置：通过 rclone about 触发驱动器发现逻辑
-# rclone 会尝试连接并获取 drive_id 和 drive_type，我们将其追加到配置文件
-DRIVE_INFO=$(rclone --config "$CONF_PATH" backend driveid tmp_od: 2>/dev/null)
-
-if [ -n "$DRIVE_INFO" ]; then
-    echo "drive_id = $DRIVE_INFO" >> "$CONF_PATH"
-    echo "drive_type = personal" >> "$CONF_PATH"
-    echo "✅ 已自动获取 Drive ID: $DRIVE_INFO"
-else
-    # 如果无法自动获取，强制指定 personal 尝试（兼容旧版本）
-    echo "drive_type = personal" >> "$CONF_PATH"
-    echo "⚠️ 无法自动获取 Drive ID，尝试以个人版模式运行..."
-fi
-
-echo "[*] 开始上传..."
-
-# 4. 执行上传
-# 使用 -vv 可以看到更详细的调试信息
-rclone --config "$CONF_PATH" copy "$FILE_PATH" tmp_od:uploads/ -vv
-
-# 5. 获取 Item ID
-# 注意：如果目录不存在，lsf 可能会报错，这里加一个容错
+# 4. 获取 Item ID
 ITEM_ID=$(rclone --config "$CONF_PATH" lsf tmp_od:uploads/ --format "i" --files-only | head -n 1)
 FILE_NAME=$(basename "$FILE_PATH")
 
 if [ -z "$ITEM_ID" ]; then
-    echo "❌ 错误：上传后无法获取文件 ID，请检查云端 uploads 目录"
+    echo "❌ 错误：上传失败或无法获取文件 ID"
     rm -f "$CONF_PATH"
     exit 1
 fi
