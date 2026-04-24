@@ -4,18 +4,58 @@ import os
 
 class OneDriveClient:
     def __init__(self, token_json_str):
-        # 解析 rclone 格式的 token
-        self.token_data = json.loads(token_json_str)
+        # 1. 解析 rclone 的 JSON 格式
+        try:
+            self.token_data = json.loads(token_json_str)
+            # 有些 rclone token 字段名可能是 token，里面嵌套了 json 字符串，需要二次解析
+            if isinstance(self.token_data.get("token"), str):
+                self.token_data = json.loads(self.token_data["token"])
+        except Exception as e:
+            raise Exception(f"Token JSON 解析失败: {e}")
+
         self.access_token = self.token_data.get("access_token")
+        self.refresh_token = self.token_data.get("refresh_token")
+        self.client_id = "20226481-0544-46e4-9d21-5fd3c920d13b" # Rclone 默认 ID，或留空
         self.api_url = "https://graph.microsoft.com/v1.0/me/drive/root"
-        
+
+    def refresh_access_token(self):
+        """当 Token 失效时，使用 refresh_token 获取新的 access_token"""
+        print("🔄 Access Token 可能已过期，正在尝试刷新...")
+        url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+        data = {
+            "client_id": self.client_id,
+            "refresh_token": self.refresh_token,
+            "grant_type": "refresh_token",
+            "scope": "offline_access Files.ReadWrite.All"
+        }
+        resp = requests.post(url, data=data)
+        if resp.status_code == 200:
+            new_data = resp.json()
+            self.access_token = new_data.get("access_token")
+            print("✅ Token 刷新成功")
+            return self.access_token
+        else:
+            raise Exception(f"刷新 Token 失败: {resp.text}")
+
     def get_headers(self):
+        # 确保头信息格式正确：Bearer <Token>
+        # 注意：Token 字符串中间必须有两个点，否则就是无效的 JWT
         return {
             "Authorization": f"Bearer {self.access_token}",
             "Content-Type": "application/json"
         }
 
     def upload_file(self, local_path):
+        """带自动重试功能的上传"""
+        try:
+            return self._execute_upload(local_path)
+        except Exception as e:
+            if "InvalidAuthenticationToken" in str(e) or "401" in str(e):
+                self.refresh_access_token()
+                return self._execute_upload(local_path) # 重试
+            raise e
+
+    def _execute_upload(self, local_path):
         """
         修正版：支持分片上传，解决 4MB 限制
         """
