@@ -12,7 +12,12 @@ on:
       storage_provider:
         default: 'aliyun'
       provider_token:
+        description: '阿里云盘 Refresh Token'
         required: false
+      ali_path:
+        description: '阿里云盘存储路径'
+        default: '/'
+        required: false        
 
 jobs:
   download:
