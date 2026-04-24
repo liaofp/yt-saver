@@ -2,6 +2,7 @@ import argparse
 import subprocess
 import sys
 import os
+import time  # 导入 time 用于延时重试
 from typing import Optional, Tuple, Literal
 
 # --- 静态配置 ---
@@ -24,6 +25,39 @@ def run_command(command: str, verbose: bool = False) -> Tuple[str, int]:
         
     return stdout, result.returncode
 
+def monitor_workflow(branch: str, verbose: bool = False) -> None:
+    """
+    监控最近启动的 Workflow 运行状态。
+    """
+    print("[*] 正在等待 GitHub Actions 分配运行 ID...")
+    
+    # 给 GitHub 一点响应时间，确保新触发的任务出现在列表中
+    time.sleep(3)
+    
+    # 获取最新的 Run ID
+    # --limit 1 获取最近的一次，--json id 只要 ID
+    get_run_cmd = f"gh run list --workflow {os.path.basename(WORKFLOW_FILE)} --branch {branch} --limit 1 --json databaseId --jq '.[0].databaseId'"
+    
+    run_id, code = run_command(get_run_cmd, verbose)
+    
+    if code != 0 or not run_id:
+        print("⚠️ 无法获取运行 ID，可能由于网络延迟。请手动在网页端查看。")
+        return
+
+    print(f"[*] 监控任务运行中 (ID: {run_id})...")
+    
+    # 使用 gh run watch 实时监控
+    # --exit-status 会根据任务最终成败返回对应的退出码
+    watch_cmd = f"gh run watch {run_id}"
+    
+    # 使用 subprocess.run 而非自定义 run_command，以便让用户看到 gh 自带的实时刷新界面
+    result = subprocess.run(watch_cmd, shell=True)
+    
+    if result.returncode == 0:
+        print(f"✅ 任务 (ID: {run_id}) 执行成功！")
+    else:
+        print(f"❌ 任务 (ID: {run_id}) 执行失败或已取消。")
+
 def setup_args() -> argparse.Namespace:
     """
     配置并解析命令行参数。
@@ -42,12 +76,17 @@ def setup_args() -> argparse.Namespace:
         "-b", "--branch", 
         type=str, 
         default="main", 
-        help="触发 GitHub Actions 的目标分支（调试新功能时使用）"
+        help="触发 GitHub Actions 的目标分支"
     )
     debug_group.add_argument(
         "-v", "--verbose", 
         action="store_true", 
-        help="启用详细调试日志，显示底层指令输出"
+        help="启用详细调试日志"
+    )
+    debug_group.add_argument(
+        "-w", "--watch",
+        action="store_true",
+        help="启动后阻塞并实时监控工作流进度"
     )
 
     # 3. 下载与存储配置
@@ -55,7 +94,7 @@ def setup_args() -> argparse.Namespace:
         "-m", "--mode", 
         choices=["audio", "video"], 
         default="audio", 
-        help="下载模式：仅音频或视频"
+        help="下载模式"
     )
     parser.add_argument(
         "-s", "--storage", 
@@ -66,21 +105,11 @@ def setup_args() -> argparse.Namespace:
 
     # 4. 阿里云盘专用参数
     ali_group = parser.add_argument_group("阿里云盘配置")
-    ali_group.add_argument(
-        "--token", 
-        type=str, 
-        help="阿里云盘 Refresh Token (存储为 aliyun 时必填)"
-    )
-    ali_group.add_argument(
-        "--path", 
-        type=str, 
-        default="/", 
-        help="阿里云盘中的目标存储目录"
-    )
+    ali_group.add_argument("--token", type=str, help="阿里云盘 Refresh Token")
+    ali_group.add_argument("--path", type=str, default="/", help="保存目录")
 
     args = parser.parse_args()
 
-    # 业务逻辑约束校验
     if args.storage == "aliyun" and not args.token:
         parser.error("错误：存储后端为 'aliyun' 时，必须提供 --token 参数。")
 
@@ -90,14 +119,11 @@ def trigger_github_action(args: argparse.Namespace) -> None:
     """
     通过 GitHub CLI 触发远程 Workflow。
     """
-    # 检查并同步 Cookies
     if os.path.exists(COOKIE_FILE):
         if args.verbose:
             print(f"[*] 正在同步 {COOKIE_FILE} 到 GitHub Secrets...")
         run_command(f"gh secret set YOUTUBE_COOKIES < {COOKIE_FILE}")
 
-    # 构建 gh workflow run 指令
-    # --ref 指定分支
     cmd: str = (
         f"gh workflow run {WORKFLOW_FILE} "
         f"--ref {args.branch} "
@@ -109,19 +135,18 @@ def trigger_github_action(args: argparse.Namespace) -> None:
     if args.storage == "aliyun":
         cmd += f"-f provider_token=\"{args.token}\" -f ali_path=\"{args.path}\""
 
-    if args.verbose:
-        print(f"[*] 正在触发分支 [{args.branch}] 上的 Actions...")
-
     stdout, code = run_command(cmd, args.verbose)
 
     if code == 0:
-        print(f"✅ 成功：已在分支 '{args.branch}' 上启动下载任务。")
+        print(f"🚀 成功：已在分支 '{args.branch}' 上触发任务。")
+        # 如果设置了监控标志，执行监控逻辑
+        if args.watch:
+            monitor_workflow(args.branch, args.verbose)
     else:
-        print(f"❌ 失败：无法触发 Actions。请检查分支名是否正确或 gh 是否登录。")
+        print(f"❌ 失败：无法触发 Actions。")
         sys.exit(1)
 
 def main() -> None:
-    """程序入口"""
     args = setup_args()
     trigger_github_action(args)
 
