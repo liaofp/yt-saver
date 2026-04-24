@@ -2,6 +2,7 @@ import argparse
 import subprocess
 import sys
 import os
+import json
 import time  # 导入 time 用于延时重试
 from typing import Optional, Tuple, Literal
 
@@ -27,36 +28,38 @@ def run_command(command: str, verbose: bool = False) -> Tuple[str, int]:
 
 def monitor_workflow(branch: str, verbose: bool = False) -> None:
     """
-    监控最近启动的 Workflow 运行状态。
+    增强版监控：增加重试机制并确保回显
     """
-    print("[*] 正在等待 GitHub Actions 分配运行 ID...")
+    print("[*] 正在同步 GitHub Actions 状态...")
     
-    # 给 GitHub 一点响应时间，确保新触发的任务出现在列表中
-    time.sleep(3)
-    
-    # 获取最新的 Run ID
-    # --limit 1 获取最近的一次，--json id 只要 ID
-    get_run_cmd = f"gh run list --workflow {os.path.basename(WORKFLOW_FILE)} --branch {branch} --limit 1 --json databaseId --jq '.[0].databaseId'"
-    
-    run_id, code = run_command(get_run_cmd, verbose)
-    
-    if code != 0 or not run_id:
-        print("⚠️ 无法获取运行 ID，可能由于网络延迟。请手动在网页端查看。")
+    run_id = None
+    # 增加重试循环，最多等待 15 秒（每 3 秒检查一次）
+    for i in range(5):
+        time.sleep(3)
+        get_run_cmd = f"gh run list --workflow {os.path.basename(WORKFLOW_FILE)} --branch {branch} --limit 1 --json databaseId,status"
+        stdout, code = run_command(get_run_cmd, verbose)
+        
+        try:
+            runs = json.loads(stdout)
+            if runs:
+                run_id = runs[0]['databaseId']
+                break
+        except:
+            continue
+            
+    if not run_id:
+        print("⚠️ 任务启动较慢，无法即时获取运行 ID。请稍后通过 'gh run list' 手动查看。")
         return
 
-    print(f"[*] 监控任务运行中 (ID: {run_id})...")
+    print(f"[*] 任务已就绪 (ID: {run_id})，开始实时监控内容...\n" + "-"*30)
     
-    # 使用 gh run watch 实时监控
-    # --exit-status 会根据任务最终成败返回对应的退出码
+    # 关键修复：直接调用系统命令，不捕获输出，让 gh 自行管理终端回显
+    # 使用 gh run view --log 可以看到详细步骤日志
+    # 使用 gh run watch 可以看到进度条
     watch_cmd = f"gh run watch {run_id}"
     
-    # 使用 subprocess.run 而非自定义 run_command，以便让用户看到 gh 自带的实时刷新界面
-    result = subprocess.run(watch_cmd, shell=True)
-    
-    if result.returncode == 0:
-        print(f"✅ 任务 (ID: {run_id}) 执行成功！")
-    else:
-        print(f"❌ 任务 (ID: {run_id}) 执行失败或已取消。")
+    # 在 Python 中，不带 capture_output 的 subprocess.run 会直接把子进程输出打印到当前终端
+    subprocess.run(watch_cmd, shell=True)
 
 def setup_args() -> argparse.Namespace:
     """
