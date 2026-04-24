@@ -1,42 +1,51 @@
-# File: providers/onedrive.py
-import re, os
-from .odclient import OneDriveClient
-from .base import StorageProvider
+import re
+import os
+import subprocess
+from providers.base import StorageProvider
 
 class OnedriveProvider(StorageProvider):
     def handle_result(self, logs, token):
-        if token is None:
-            print("❌ 错误: Provider 接收到的 Token 为空")
-            return
-        
-        # 1. 匹配云端 shell 脚本输出的标准结果标记 [cite: 42]
+        """
+        根治版：直接调用本地系统预装的 rclone
+        """
+        # 1. 提取云端上传后的信息
         match = re.search(r"---RESULT_START---(.*?)---RESULT_END---", logs, re.S)
-        if not match: 
-            print("⚠️ 未在日志中找到上传结果标记，回传终止。")
+        if not match:
+            print("❌ 未在日志中找到上传结果标识，请检查 GitHub Actions 日志。")
             return
-        
-        data = match.group(1)
-        # 提取由 onedrive.sh 打印的 ITEM_ID 和 FILE_NAME
-        item_id = re.search(r"ITEM_ID: (\S+)", data).group(1)
-        name = re.search(r"FILE_NAME: (\S+)", data).group(1)
 
-        print(f"📥 正在自动回传文件: {name}")
-        client = OneDriveClient(token_data_raw=token)
+        result_text = match.group(1)
+        item_id_match = re.search(r"ITEM_ID:\s*(.*)", result_text)
+        file_name_match = re.search(r"FILE_NAME:\s*(.*)", result_text)
         
-        # 2. 确保本地下载目录存在 [cite: 43]
-        os.makedirs(self.download_dir, exist_ok=True)
+        if not item_id_match or not file_name_match:
+            print("❌ 无法解析文件 ID 或文件名。")
+            return
+
+        file_name = file_name_match.group(1).strip()
+        # 注意：这里我们使用文件名进行下载，因为 rclone 对路径支持更直观
+        remote_path = f"onedrive:uploads/{file_name}"
+        local_path = os.path.join(self.download_dir, file_name)
+
+        print(f"[*] 检测到云端文件: {file_name}")
         
-        # 3. 执行下载逻辑
-        # download_file 内部会自动拼接路径并执行流式写入 [cite: 34, 37]
-        final_local_path = client.download_file(item_id=item_id, local_path=self.download_dir)
-        
-        # 4. 下载完成后清理云端临时文件 [cite: 43]
-        client.delete_file(item_id=item_id)
-        
-        # --- 重点：增加路径和文件名的明确反馈 ---
-        print("-" * 30)
-        print(f"✨ 回传完成！")
-        print(f"📁 存放目录: {self.download_dir}")
-        print(f"📄 文件名称: {name}")
-        print(f"📍 完整路径: {final_local_path}")
-        print("-" * 30)
+        # 2. 确保本地目录存在
+        if not os.path.exists(self.download_dir):
+            os.makedirs(self.download_dir)
+
+        # 3. 使用 rclone copy 抓取文件
+        # rclone 会自动读取 ~/.config/rclone/rclone.conf 并处理 Token 刷新
+        print(f"📥 正在回传文件到本地...")
+        try:
+            # -P 显示进度，--inplace 减少临时文件
+            subprocess.run(["rclone", "copy", remote_path, self.download_dir, "-P"], check=True)
+            print(f"✅ 回传成功: {local_path}")
+
+            # 4. 成功后清理云端
+            print(f"🧹 正在清理云端临时文件...")
+            subprocess.run(["rclone", "deletefile", remote_path], check=True)
+            print("✨ 云端清理完成，任务圆满结束。")
+
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Rclone 操作失败。请确认本地 rclone 配置文件中远程端名称为 'onedrive'")
+            print(f"错误详情: {e}")
