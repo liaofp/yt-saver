@@ -1,7 +1,8 @@
 #!/bin/bash
+SCRIPT_DIR=$(cd "$(dirname "$0")"; pwd)
 python3 -c "
 import os, sys
-sys.path.append(os.getcwd())
+sys.path.insert(0, '$SCRIPT_DIR')
 from aliclient import AliClient
 ali = AliClient(refresh_token='$2')
 res = ali.upload_file('$1')
