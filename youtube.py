@@ -60,7 +60,7 @@ def setup_args() -> argparse.Namespace:
     parser.add_argument(
         "-s", "--storage", 
         choices=["aliyun", "gofile"], 
-        default="alipan", 
+        default="aliyun", 
         help="目标存储平台"
     )
 
@@ -69,7 +69,7 @@ def setup_args() -> argparse.Namespace:
     ali_group.add_argument(
         "--token", 
         type=str, 
-        help="阿里云盘 Refresh Token (存储为 alipan 时必填)"
+        help="阿里云盘 Refresh Token (存储为 aliyun 时必填)"
     )
     ali_group.add_argument(
         "--path", 
