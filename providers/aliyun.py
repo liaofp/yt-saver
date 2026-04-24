@@ -1,5 +1,5 @@
 import re, os
-from .aliclient import AliClient
+from .aliclient import AlipanClient
 from .base import StorageProvider
 
 class AliyunProvider(StorageProvider):
@@ -14,7 +14,7 @@ class AliyunProvider(StorageProvider):
         name = re.search(r"FILE_NAME: (\S+)", data).group(1)
 
         print(f"📥 正在从阿里云盘自动回传: {name}")
-        ali = AliClient(refresh_token=token)
+        ali = AlipanClient(refresh_token=token)
         os.makedirs(self.download_dir, exist_ok=True)
         ali.download_file(file_id=f_id, local_path=os.path.join(self.download_dir))
         ali.delete_file(file_id=f_id)
