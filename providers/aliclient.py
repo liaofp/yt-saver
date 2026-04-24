@@ -72,7 +72,7 @@ class AlipanClient:
                 self.drive_id = res.get("resource_drive_id") or res.get("default_drive_id")
                 
                 if self.drive_id:
-                    print(f"✅ 成功定位个人网盘 Drive ID: {self.drive_id}") 
+                    print(f"✅ 成功定位个人网盘 Drive ID: {self.drive_id}")
                     return
             except Exception as e:
                 last_error = str(e)
