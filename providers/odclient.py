@@ -9,39 +9,39 @@ class OneDriveClient:
         智能解析：支持直接传入 Access Token、JSON 字符串或完整的 Rclone INI 配置
         """
         self.access_token = None
+        self.token_data = {} # 显式初始化，防止 AttributeError
         
         if not token_data_raw:
             raise Exception("Token 数据为空")
 
-        # 1. 尝试作为 Rclone INI 格式解析 (提取 token = {...} 这一行)
+        # 1. 尝试从 Rclone INI 格式中提取
         if "[tmp_od]" in token_data_raw or "token =" in token_data_raw:
             match = re.search(r'token\s*=\s*(\{.*?\})', token_data_raw)
             if match:
                 token_json_str = match.group(1)
                 try:
-                    self.access_token = json.loads(token_json_str).get("access_token")
+                    self.token_data = json.loads(token_json_str)
+                    self.access_token = self.token_data.get("access_token")
                 except:
                     pass
 
-        # 2. 如果没匹配到，尝试作为纯 JSON 解析
+        # 2. 如果没提取到，尝试作为纯 JSON 解析
         if not self.access_token:
             try:
                 data = json.loads(token_data_raw)
-                # 兼容 rclone 导出的嵌套格式
+                # 兼容 rclone 导出的嵌套 JSON 格式
                 if isinstance(data.get("token"), str):
-                    self.access_token = json.loads(data["token"]).get("access_token")
+                    self.token_data = json.loads(data["token"])
                 else:
-                    self.access_token = data.get("access_token")
+                    self.token_data = data
+                self.access_token = self.token_data.get("access_token")
             except:
-                # 3. 最后实在不行，当作原始字符串处理
+                # 3. 最后退路：当作原始字符串直接作为 access_token
                 self.access_token = token_data_raw
+                self.token_data = {"access_token": token_data_raw}
 
         if not self.access_token:
             raise Exception("无法从输入中提取有效的 Access Token")
-
-        self.access_token = self.token_data.get("access_token")
-        self.refresh_token = self.token_data.get("refresh_token")
-        self.client_id = "20226481-0544-46e4-9d21-5fd3c920d13b" # Rclone 默认 ID，或留空
         self.api_url = "https://graph.microsoft.com/v1.0/me/drive/root"
 
     def refresh_access_token(self):
