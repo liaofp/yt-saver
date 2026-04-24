@@ -5,6 +5,10 @@ from .base import StorageProvider
 
 class OnedriveProvider(StorageProvider):
     def handle_result(self, logs, token):
+        if token is None:
+            print("❌ 错误: Provider 接收到的 Token 为空")
+            return
+        
         # 1. 匹配云端 shell 脚本输出的标准结果标记 [cite: 42]
         match = re.search(r"---RESULT_START---(.*?)---RESULT_END---", logs, re.S)
         if not match: 

@@ -60,7 +60,13 @@ def monitor_workflow(branch: str, storage_type: str, token: str, verbose: bool =
     config.add_section('Storage') # 默认为 ~/Downloads [cite: 34]
     
     if storage_type == "onedrive":
-        OnedriveProvider(config).handle_result(log_stdout, token)    
+        effective_token = token or os.environ.get("ONEDRIVE_TOKEN")
+        if not effective_token:
+            print("\n❌ 错误: 本地回传失败。OneDrive 需要 Token 来下载文件。")
+            print("请使用 -t 参数传入 Token JSON，或设置环境变量 ONEDRIVE_TOKEN。")
+            return
+            
+        OnedriveProvider(config).handle_result(log_stdout, effective_token)
     elif storage_type == "aliyun":
         provider = AliyunProvider(config)
         provider.handle_result(log_stdout, token) # 此处会触发下载并调用 ali.delete_file [cite: 37]
