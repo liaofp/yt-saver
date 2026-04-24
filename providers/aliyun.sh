@@ -10,8 +10,11 @@ sys.path.insert(0, '$SCRIPT_DIR')
 from aliclient import AlipanClient
 
 try:
+    token = os.environ.get('TOKEN')
+    if not token:
+        raise Exception('未接收到阿里网盘 Token')
     # 1. 初始化客户端（内部已获取 drive_id）
-    ali = AlipanClient(refresh_token='$REFRESH_TOKEN')
+    ali = AlipanClient(refresh_token=token)
     
     # 2. 执行上传 (支持秒传逻辑)
     res = ali.upload_file('$FILE_PATH')
