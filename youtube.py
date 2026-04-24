@@ -38,7 +38,7 @@ def monitor_workflow(branch: str, storage_type: str, token: str, verbose: bool =
     run_id = None
     for i in range(5):
         time.sleep(3)
-        get_run_cmd = f"gh run list --workflow {os.path.basename(WORKFLOW_FILE)} --branch {branch} --limit 1 --json databaseId,status" [cite: 3]
+        get_run_cmd = f"gh run list --workflow {os.path.basename(WORKFLOW_FILE)} --branch {branch} --limit 1 --json databaseId,status"
         stdout, code = run_command(get_run_cmd, verbose)
         try:
             runs = json.loads(stdout)
