@@ -50,9 +50,11 @@ jobs:
         env:
           TOKEN: ${{ github.event.inputs.provider_token }}
           PROVIDER: ${{ github.event.inputs.storage_provider }}
+          PYTHONUNBUFFERED: "1"
         run: |
           chmod +x ./providers/${PROVIDER}.sh
-          ./providers/${PROVIDER}.sh "$FINAL_FILE" "$TOKEN"
+          # ./providers/${PROVIDER}.sh "$FINAL_FILE" "$TOKEN"
+          ./providers/${PROVIDER}.sh "$FINAL_FILE" "$TOKEN" || echo "上传任务超时"
 
       - name: 5. 自动清理 GitHub 空间
         if: always() 

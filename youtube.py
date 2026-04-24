@@ -64,6 +64,10 @@ def monitor_workflow(branch: str, storage_type: str, token: str, verbose: bool =
     elif storage_type == "gofile":
         GofileProvider(config).handle_result(log_stdout)
 
+    print(f"[*] 正在清除 GitHub Actions 页面显示内容 (ID: {run_id})...")
+    run_command(f"gh run delete {run_id}")
+    print("✅ 运行记录已从 GitHub 项目页面清除。")
+
 def setup_args() -> argparse.Namespace:
     """
     配置并解析命令行参数。

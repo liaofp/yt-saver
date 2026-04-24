@@ -1,6 +1,7 @@
 import requests
 import os
-import json
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 class AlipanClient:
     def __init__(self, refresh_token):
@@ -9,10 +10,18 @@ class AlipanClient:
         self.drive_id = None
         self.api_host = "https://api.aliyundrive.com"
         self.auth_host = "https://auth.aliyundrive.com"
-        # 网页端常用的 client_id
         self.client_id = "25dzX3vbYq8VNIpa" 
         
-        # 初始获取 access_token 和 drive_id
+        # 配置具备自动重试机制的 Session
+        self.session = requests.Session()
+        retry_strategy = Retry(
+            total=5,
+            backoff_factor=1,  # 指数退避：1s, 2s, 4s, 8s...
+            status_forcelist=[429, 500, 502, 503, 504],
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        self.session.mount("https://", adapter)
+        
         self.update_token()
         self.get_default_drive()
 
@@ -24,14 +33,17 @@ class AlipanClient:
             "refresh_token": self.refresh_token,
             "client_id": self.client_id
         }
-        response = requests.post(url, json=data).json()
-        
-        if "access_token" in response:
-            self.access_token = response["access_token"]
-            self.refresh_token = response["refresh_token"]  # 每次刷新都会返回新的 refresh_token
-            print("Token 刷新成功")
-        else:
-            raise Exception(f"Token 刷新失败: {response}")
+        try:
+            # 必须设置 timeout 防止卡死
+            response = self.session.post(url, json=data, timeout=15).json()
+            if "access_token" in response:
+                self.access_token = response["access_token"]
+                self.refresh_token = response["refresh_token"]
+                print("[*] Token 刷新成功")
+            else:
+                raise Exception(f"Token 刷新失败: {response}")
+        except Exception as e:
+            raise Exception(f"Auth 接口连接失败: {str(e)}")
 
     def get_headers(self):
         return {
@@ -41,30 +53,32 @@ class AlipanClient:
         }
 
     def get_default_drive(self):
-        """针对个人网盘优化的 Drive ID 获取逻辑"""
-        # 个人网盘通常使用 v2 接口，且路径为 /adrive/v1/user/get 或 /v2/user/get
-        # 我们直接尝试最通用的个人中心接口
-        url = f"https://api.aliyundrive.com/v2/user/get"
+        url_a = f"{self.api_host}/adrive/v1/user/get"
+        url_b = f"{self.api_host}/v2/user/get"
         
-        try:
-            # 个人版有些接口不需要 body，但必须是 POST
-            response = requests.post(url, json={}, headers=self.get_headers())
-            res = response.json()
-            
-            # 调试：如果还是报错，可以打印看下
-            if "code" in res and res["code"] == "NotFound":
-                # 最后的兜底方案：尝试另一个常见的个人版路径
-                url = f"https://api.aliyundrive.com/adrive/v1/user/get"
-                res = requests.post(url, json={}, headers=self.get_headers()).json()
-
-            self.drive_id = res.get("default_drive_id") or res.get("resource_drive_id")
-            
-            if not self.drive_id:
-                raise Exception(f"无法获取 DriveID，API 返回: {res}")
+        last_error = ""
+        for url in [url_a, url_b]:
+            try:
+                # 个人版必须是 POST 且 Body 为 {}
+                response = self.session.post(url, json={}, headers=self.get_headers(), timeout=15)
+                res = response.json()
                 
-            print(f"✅ 成功定位个人网盘 Drive ID: {self.drive_id}")
-        except Exception as e:
-            raise Exception(f"获取 Drive 信息失败: {str(e)}")
+                # 检查返回 code
+                if res.get("code") == "NotFound":
+                    last_error = res.get("message")
+                    continue
+                
+                # 个人网盘逻辑：优先取 resource_drive_id (资源库) 或 default_drive_id (文件库)
+                self.drive_id = res.get("resource_drive_id") or res.get("default_drive_id")
+                
+                if self.drive_id:
+                    print(f"✅ 成功定位个人网盘 Drive ID: {self.drive_id}") 
+                    return
+            except Exception as e:
+                last_error = str(e)
+                continue
+        
+        raise Exception(f"无法获取 DriveID。最后一次尝试错误: {last_error}")
         
     def get_download_url(self, file_id):
         """1. 获取下载链接"""
@@ -89,62 +103,78 @@ class AlipanClient:
             return True
         return res.json()
 
-    def upload_file(self, local_path, parent_file_id="root"):
-        """优化版上传：支持秒传检测和错误处理"""
+    def upload_file(self, local_path: str, parent_file_id: str = "root"):
+        """
+        高性能上传：支持大文件分片、秒传检测
+        """
         if not os.path.exists(local_path):
             raise Exception(f"本地文件不存在: {local_path}")
 
         file_name = os.path.basename(local_path)
         file_size = os.path.getsize(local_path)
+        # 每个分片 10MB (阿里网盘单片上限为 100MB，GitHub 环境建议小一点) [cite: 22]
+        chunk_size = 10 * 1024 * 1024 
+        
+        # 1. 计算分片
+        part_info_list = []
+        part_count = (file_size // chunk_size) + (1 if file_size % chunk_size > 0 else 0)
+        # 如果是 0 字节文件，至少需要一个分片声明
+        if part_count == 0: part_count = 1 
+        
+        for i in range(part_count):
+            part_info_list.append({"part_number": i + 1})
 
-        # Step A: 创建文件预检
+        # 2. 创建上传任务 (预检) [cite: 21]
         create_url = f"{self.api_host}/adrive/v2/file/createWithFolders"
         create_data = {
             "drive_id": self.drive_id,
             "parent_file_id": parent_file_id,
             "name": file_name,
             "type": "file",
-            "check_name_mode": "auto_rename", # 如果重名，自动重命名
+            "check_name_mode": "auto_rename",
             "size": file_size,
-            "part_info_list": [{"part_number": 1}]
+            "part_info_list": part_info_list
         }
         
-        response = requests.post(create_url, json=create_data, headers=self.get_headers())
-        create_res = response.json()
+        create_res = self.session.post(create_url, json=create_data, headers=self.get_headers(), timeout=20).json()
 
-        # 检查是否请求成功
-        if response.status_code not in [200, 201]:
-            raise Exception(f"创建文件失败: {create_res}")
+        if "file_id" not in create_res:
+            raise Exception(f"创建上传任务失败: {create_res}")
 
-        file_id = create_res.get("file_id")
-        
-        # 核心逻辑：判断是否秒传成功
+        file_id = create_res["file_id"]
+        upload_id = create_res.get("upload_id")
+
+        # 3. 检查秒传 [cite: 24]
         if create_res.get("rapid_upload"):
             print(f"✨ 文件 {file_name} 秒传成功！")
             return create_res
 
-        # 如果没有秒传，则执行常规上传
-        upload_id = create_res.get("upload_id")
-        part_info = create_res.get("part_info_list", [])[0]
-        upload_url = part_info.get("upload_url")
+        # 4. 执行分片上传 [cite: 25]
+        parts_from_server = create_res.get("part_info_list", [])
+        print(f"🚀 开始上传: {file_name} (共 {part_count} 个分片, 总大小 {file_size/1024/1024:.2f}MB)")
+        
+        with open(local_path, "rb") as f:
+            for i, part in enumerate(parts_from_server):
+                upload_url = part["upload_url"]
+                part_num = part["part_number"]
+                
+                # 定位分片数据
+                f.seek((part_num - 1) * chunk_size)
+                chunk_data = f.read(chunk_size)
+                
+                # 上传分片，设置 5 分钟超时应对大分片 [cite: 25]
+                print(f"  > 正在上传分片 [{part_num}/{part_count}]...")
+                put_res = self.session.put(upload_url, data=chunk_data, timeout=300)
+                put_res.raise_for_status()
 
-        if not upload_url:
-            raise Exception(f"未获取到上传地址，请检查权限或文件状态: {create_res}")
-
-        # Step B: 上传二进制流
-        print(f"正在上传 {file_name} ...")
-        with open(local_path, 'rb') as f:
-            upload_res = requests.put(upload_url, data=f)
-            upload_res.raise_for_status()
-
-        # Step C: 完成上传
+        # 5. 完成上传 [cite: 26]
         complete_url = f"{self.api_host}/v2/file/complete"
         complete_data = {
             "drive_id": self.drive_id,
             "file_id": file_id,
             "upload_id": upload_id
         }
-        final_res = requests.post(complete_url, json=complete_data, headers=self.get_headers()).json()
+        final_res = self.session.post(complete_url, json=complete_data, headers=self.get_headers(), timeout=20).json()
         print(f"✅ 文件 {file_name} 上传完成")
         return final_res
     
@@ -205,7 +235,7 @@ class AlipanClient:
 # --- 使用示例 ---
 if __name__ == "__main__":
     # 请替换为你抓取到的 refresh_token
-    MY_REFRESH_TOKEN = "4e518cf6a79d41088356f7751303de1a"
+    MY_REFRESH_TOKEN = "2857b916455e4bc7a441fda54955a2f4"
     
     try:
         client = AlipanClient(MY_REFRESH_TOKEN)
