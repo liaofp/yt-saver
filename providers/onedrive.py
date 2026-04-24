@@ -21,7 +21,7 @@ class OnedriveProvider(StorageProvider):
         name = re.search(r"FILE_NAME: (\S+)", data).group(1)
 
         print(f"📥 正在自动回传文件: {name}")
-        client = OneDriveClient(token_json_str=token)
+        client = OneDriveClient(token_data_raw=token)
         
         # 2. 确保本地下载目录存在 [cite: 43]
         os.makedirs(self.download_dir, exist_ok=True)
