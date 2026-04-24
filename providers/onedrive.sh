@@ -1,51 +1,66 @@
 #!/bin/bash
 # ==========================================
 # File: providers/onedrive.sh
-# Description: 利用系统预装的 rclone 实现自动刷新 Token 上传
 # ==========================================
 
 FILE_PATH="$1"
-OD_TOKEN_JSON="$TOKEN" # 从环境变量读取 GitHub Secret
+OD_TOKEN_JSON="$TOKEN"
+CONF_PATH="/tmp/rclone_tmp.conf"
 
-# 检查文件
 if [ ! -f "$FILE_PATH" ]; then
     echo "❌ 错误：找不到文件 $FILE_PATH"
     exit 1
 fi
 
-# 1. 验证 rclone 是否可用
+# 1. 尝试安装/检查 rclone
 if ! command -v rclone &> /dev/null; then
-    echo "⚠️ 环境中未找到 rclone，正在尝试动态安装..."
     curl https://rclone.org/install.sh | sudo bash
 fi
 
-# 2. 准备临时配置文件 (使用自定义路径，避免冲突)
-CONF_PATH="/tmp/rclone_tmp.conf"
+# 2. 关键修复：从 Token JSON 中提取 drive_id (如果存在) 并生成基础配置
+# 如果 rclone token 是完整的，它可能已经包含了 drive_id
+mkdir -p ~/.config/rclone
+
+# 先写一个基础配置
 cat <<EOF > "$CONF_PATH"
 [tmp_od]
 type = onedrive
 token = $OD_TOKEN_JSON
-drive_type = personal
 EOF
 
-echo "[*] 开始上传至 OneDrive (由 rclone 托管 Token 刷新)..."
+echo "[*] 正在自动检索 OneDrive 驱动器信息..."
 
-# 3. 使用 --config 参数执行上传
-# rclone 会自动处理 4MB 限制、断点续传和 Token 刷新
-rclone --config "$CONF_PATH" copy "$FILE_PATH" tmp_od:uploads/ -v
+# 3. 自动补全配置：通过 rclone about 触发驱动器发现逻辑
+# rclone 会尝试连接并获取 drive_id 和 drive_type，我们将其追加到配置文件
+DRIVE_INFO=$(rclone --config "$CONF_PATH" backend driveid tmp_od: 2>/dev/null)
 
-# 4. 获取上传后的 ID
-# 微软 API 只有获取到这个 ID，本地才能精准回传
+if [ -n "$DRIVE_INFO" ]; then
+    echo "drive_id = $DRIVE_INFO" >> "$CONF_PATH"
+    echo "drive_type = personal" >> "$CONF_PATH"
+    echo "✅ 已自动获取 Drive ID: $DRIVE_INFO"
+else
+    # 如果无法自动获取，强制指定 personal 尝试（兼容旧版本）
+    echo "drive_type = personal" >> "$CONF_PATH"
+    echo "⚠️ 无法自动获取 Drive ID，尝试以个人版模式运行..."
+fi
+
+echo "[*] 开始上传..."
+
+# 4. 执行上传
+# 使用 -vv 可以看到更详细的调试信息
+rclone --config "$CONF_PATH" copy "$FILE_PATH" tmp_od:uploads/ -vv
+
+# 5. 获取 Item ID
+# 注意：如果目录不存在，lsf 可能会报错，这里加一个容错
 ITEM_ID=$(rclone --config "$CONF_PATH" lsf tmp_od:uploads/ --format "i" --files-only | head -n 1)
 FILE_NAME=$(basename "$FILE_PATH")
 
 if [ -z "$ITEM_ID" ]; then
-    echo "❌ 错误：上传成功但无法检索到文件 ID"
+    echo "❌ 错误：上传后无法获取文件 ID，请检查云端 uploads 目录"
     rm -f "$CONF_PATH"
     exit 1
 fi
 
-# 5. 清理临时配置并打印结果
 rm -f "$CONF_PATH"
 
 echo -e "\n---RESULT_START---"
