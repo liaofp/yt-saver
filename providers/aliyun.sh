@@ -1,5 +1,7 @@
 #!/bin/bash
 python3 -c "
+import os, sys
+sys.path.append(os.getcwd())
 from aliclient import AliClient
 ali = AliClient(refresh_token='$2')
 res = ali.upload_file('$1')
