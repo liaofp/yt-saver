@@ -106,8 +106,8 @@ def trigger_github_action(args: argparse.Namespace) -> None:
         f"-f storage_provider=\"{args.storage}\" "
     )
 
-    if args.storage == "alipan":
-        cmd += f"-f ali_token=\"{args.token}\" -f ali_path=\"{args.path}\""
+    if args.storage == "aliyun":
+        cmd += f"-f provider_token=\"{args.token}\" -f ali_path=\"{args.path}\""
 
     if args.verbose:
         print(f"[*] 正在触发分支 [{args.branch}] 上的 Actions...")
