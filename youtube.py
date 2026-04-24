@@ -7,6 +7,7 @@ import time  # 导入 time 用于延时重试
 from typing import Optional, Tuple, Literal
 from providers.aliyun import AliyunProvider
 from providers.gofile import GofileProvider
+from providers.onedrive import OnedriveProvider
 import configparser
 
 # --- 静态配置 ---
@@ -58,7 +59,9 @@ def monitor_workflow(branch: str, storage_type: str, token: str, verbose: bool =
     config = configparser.ConfigParser()
     config.add_section('Storage') # 默认为 ~/Downloads [cite: 34]
     
-    if storage_type == "aliyun":
+    if storage_type == "onedrive":
+        OnedriveProvider(config).handle_result(log_stdout, token)    
+    elif storage_type == "aliyun":
         provider = AliyunProvider(config)
         provider.handle_result(log_stdout, token) # 此处会触发下载并调用 ali.delete_file [cite: 37]
     elif storage_type == "gofile":
@@ -108,8 +111,8 @@ def setup_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "-s", "--storage", 
-        choices=["aliyun", "gofile"], 
-        default="aliyun", 
+        choices=["onedrive", "aliyun", "gofile"], 
+        default="onedrive", 
         help="目标存储平台"
     )
 
