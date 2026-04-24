@@ -28,7 +28,7 @@ jobs:
 
       - name: 2. 安装依赖 (强制更新 yt-dlp)
         run: |
-          sudo python3 -m pip install -U yt-dlp aligo
+          sudo python3 -m pip install -U yt-dlp
           sudo apt-get update && sudo apt-get install -y ffmpeg nodejs jq
 
       - name: 3. 执行解密下载
