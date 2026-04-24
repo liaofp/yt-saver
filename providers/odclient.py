@@ -84,12 +84,12 @@ class OneDriveClient:
         download_url = file_info.get("@microsoft.graph.downloadUrl")
 
         if os.path.isdir(local_path):
-            final_path = os.path.join(local_path, cloud_name) [cite: 34]
+            final_path = os.path.join(local_path, cloud_name)
         else:
             final_path = local_path
             os.makedirs(os.path.dirname(os.path.abspath(final_path)), exist_ok=True)
 
-        print(f"正在下载: {cloud_name} -> {final_path}") [cite: 35]
+        print(f"正在下载: {cloud_name} -> {final_path}")
         
         with requests.get(download_url, stream=True) as r:
             r.raise_for_status()
@@ -98,10 +98,10 @@ class OneDriveClient:
                     if chunk:
                         f.write(chunk)
         
-        print(f"✅ 下载完成！") [cite: 37]
+        print(f"✅ 下载完成！")
         return final_path
 
     def delete_file(self, item_id):
         """删除云端文件"""
         url = f"https://graph.microsoft.com/v1.0/me/drive/items/{item_id}"
-        return requests.delete(url, headers=self.get_headers()).status_code == 204 [cite: 23, 24]
+        return requests.delete(url, headers=self.get_headers()).status_code == 204
