@@ -1,3 +1,5 @@
 cookies.txt
 __pycache__/
 .venv/
+*.log
+tasks.yml
