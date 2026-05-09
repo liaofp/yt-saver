@@ -23,7 +23,7 @@ class BatchDownloader:
         """
         解析单个任务的配置。
         支持两种格式：
-          1. 字符串: "filename.opus"  -> 使用指定文件名，mode 继承全局
+          1. 字符串: "filename"  -> 使用指定文件名（不带扩展名），mode 继承全局
           2. 字典:   {filename: "xxx", mode: "audio"} -> 逐项解析，缺失项继承全局
         返回: (filename, mode)
         """
@@ -43,6 +43,31 @@ class BatchDownloader:
             mode = global_cfg.get("mode", "audio")
 
         return filename, mode
+
+    @staticmethod
+    def normalize_filename(filename, mode):
+        """
+        规范化文件名：
+        - 去掉用户可能误填的扩展名（由 yt-dlp 根据 mode 自动决定）
+        - audio -> .opus, video -> .mp4
+        返回不带扩展名的纯文件名（用于 yt-dlp -o 模板）
+        """
+        if not filename:
+            return None
+
+        # 去掉常见的扩展名后缀（用户可能误填）
+        # 音频扩展名
+        for ext in ['.opus', '.mp3', '.m4a', '.wav', '.flac', '.ogg', '.webm']:
+            if filename.lower().endswith(ext):
+                filename = filename[:-len(ext)]
+                break
+        # 视频扩展名
+        for ext in ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm']:
+            if filename.lower().endswith(ext):
+                filename = filename[:-len(ext)]
+                break
+
+        return filename
 
     def run(self):
         global_cfg = self.data.get("config", {})
@@ -68,6 +93,9 @@ class BatchDownloader:
             # 如果未指定文件名，使用当前服务器时间毫秒戳
             if not filename:
                 filename = f"{int(time.time() * 1000)}"
+            else:
+                # 用户指定了文件名，去掉可能误填的扩展名
+                filename = self.normalize_filename(filename, mode)
 
             print(f"--- [任务 {i}/{total}] URL: {url} ---")
             print(f"    模式: {mode} | 文件名: {filename}")
@@ -91,12 +119,13 @@ class BatchDownloader:
                 trigger_github_action(current_args)
                 print(f"✅ 任务 {i} 完成回传。\n")
             except SystemExit:
-                # trigger_github_action 在失败时调用 sys.exit(1)，捕获后继续下一任务
-                print(f"❌ 任务 {i} 触发失败，跳过。\n")
-                continue
+                # trigger_github_action 在失败时调用 sys.exit(1)，任务失败立即终止程序
+                print(f"❌ 任务 {i} 触发失败，批量任务已终止。")
+                sys.exit(1)
             except Exception as e:
-                print(f"❌ 任务 {i} 出错: {e}\n")
-                continue
+                print(f"❌ 任务 {i} 出错: {e}")
+                print("批量任务已终止。")
+                sys.exit(1)
 
         print("✨ 所有批量任务处理完毕。")
 

@@ -19,7 +19,7 @@ on:
         default: '/'
         required: false
       output_filename:
-        description: '自定义输出文件名（不含扩展名时由 yt-dlp 自动追加）'
+        description: '自定义输出文件名（纯文件名，不含扩展名）'
         default: ''
         required: false
 
@@ -42,14 +42,18 @@ jobs:
           # 严格对齐附件的成功参数
           COMMON_ARGS="--cookies cookies.txt --remote-components ejs:github --js-runtimes node --no-check-certificates --force-ipv4"
 
-          # 生成唯一文件名前缀，确保不会与仓库已有文件冲突
+          # 先生成时间戳，确保下载前后使用同一个值
           TIMESTAMP_MS=$(date +%s%3N)
 
           # 判断是否使用自定义文件名
           if [ -n "${{ github.event.inputs.output_filename }}" ]; then
-            OUTPUT_TEMPLATE="${TIMESTAMP_MS}_${{ github.event.inputs.output_filename }}.%(ext)s"
+            # 用户指定了文件名：直接使用，不附加时间戳，yt-dlp 自动追加正确扩展名
+            OUTPUT_TEMPLATE="${{ github.event.inputs.output_filename }}.%(ext)s"
+            FILE_PREFIX="${{ github.event.inputs.output_filename }}"
           else
-            OUTPUT_TEMPLATE="${TIMESTAMP_MS}_%(title)s-%(id)s.%(ext)s"
+            # 未指定文件名：使用时间戳作为文件名
+            OUTPUT_TEMPLATE="${TIMESTAMP_MS}.%(ext)s"
+            FILE_PREFIX="${TIMESTAMP_MS}"
           fi
 
           if [ "${{ github.event.inputs.download_type }}" = "audio" ]; then
@@ -58,8 +62,9 @@ jobs:
             yt-dlp $COMMON_ARGS -f "best[height<=720][ext=mp4]/best" "${{ github.event.inputs.video_url }}" -o "$OUTPUT_TEMPLATE"
           fi
 
-          # 精确获取本次下载生成的文件（匹配时间戳前缀）
-          FINAL_FILE=$(ls -t ${TIMESTAMP_MS}_* 2>/dev/null | head -n 1)
+          # 获取实际下载生成的文件（匹配文件名前缀）
+          FINAL_FILE=$(ls -t ${FILE_PREFIX}.* 2>/dev/null | head -n 1)
+
           if [ -z "$FINAL_FILE" ]; then
             echo "❌ 错误：yt-dlp 下载失败，未找到输出文件"
             exit 1
