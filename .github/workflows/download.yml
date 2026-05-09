@@ -38,13 +38,23 @@ jobs:
           # 严格对齐附件的成功参数
           COMMON_ARGS="--cookies cookies.txt --remote-components ejs:github --js-runtimes node --no-check-certificates --force-ipv4"
           
+          # 生成唯一文件名前缀，确保不会与仓库已有文件冲突
+          TIMESTAMP_MS=$(date +%s%3N)
+          OUTPUT_TEMPLATE="${TIMESTAMP_MS}_%(title)s-%(id)s.%(ext)s"
+          
           if [ "${{ github.event.inputs.download_type }}" = "audio" ]; then
-            yt-dlp $COMMON_ARGS -f "bestaudio" --extract-audio --audio-format opus "${{ github.event.inputs.video_url }}" -o "output.%(ext)s"
+            yt-dlp $COMMON_ARGS -f "bestaudio" --extract-audio --audio-format opus "${{ github.event.inputs.video_url }}" -o "$OUTPUT_TEMPLATE"
           else
-            yt-dlp $COMMON_ARGS -f "best[height<=720][ext=mp4]/best" "${{ github.event.inputs.video_url }}" -o "output.%(ext)s"
+            yt-dlp $COMMON_ARGS -f "best[height<=720][ext=mp4]/best" "${{ github.event.inputs.video_url }}" -o "$OUTPUT_TEMPLATE"
           fi
           
-          echo "FINAL_FILE=$(ls output.* | head -n 1)" >> $GITHUB_ENV
+          # 精确获取本次下载生成的文件（匹配时间戳前缀）
+          FINAL_FILE=$(ls -t ${TIMESTAMP_MS}_* 2>/dev/null | head -n 1)
+          if [ -z "$FINAL_FILE" ]; then
+            echo "❌ 错误：yt-dlp 下载失败，未找到输出文件"
+            exit 1
+          fi
+          echo "FINAL_FILE=$FINAL_FILE" >> $GITHUB_ENV
 
       - name: 4. 动态插件上传
         env:
@@ -61,6 +71,6 @@ jobs:
         run: |
           echo "[*] 正在执行安全清理..."
           rm -f cookies.txt          # 删除包含账号凭证的 Cookie [cite: 9, 42]
-          rm -f output.* # 删除下载的媒体文件 [cite: 43]
+          rm -f "${{ env.FINAL_FILE }}" 2>/dev/null || true  # 删除本次下载的媒体文件
           rm -rf ./*.part            # 删除可能的下载缓存
           echo "✅ 数据已清理，无残留。"
