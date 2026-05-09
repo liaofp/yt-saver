@@ -10,23 +10,33 @@ class OneDriveClient:
         """
         self.access_token = None
         self.token_data = {} # 显式初始化，防止 AttributeError
+        self.refresh_token = None
+        self.client_id = None
+        self.client_secret = None
         
         if not token_data_raw:
             raise Exception("Token 数据为空")
 
+        self.session = requests.Session()
+
         # 1. 尝试从 Rclone INI 格式中提取
         if "[tmp_od]" in token_data_raw or "token =" in token_data_raw:
+            # 提取 client_id 和 client_secret
+            cid_match = re.search(r'client_id\s*=\s*(.*)', token_data_raw)
+            if cid_match: self.client_id = cid_match.group(1).strip()
+            cs_match = re.search(r'client_secret\s*=\s*(.*)', token_data_raw)
+            if cs_match: self.client_secret = cs_match.group(1).strip()
+            
             match = re.search(r'token\s*=\s*(\{.*?\})', token_data_raw)
             if match:
                 token_json_str = match.group(1)
                 try:
                     self.token_data = json.loads(token_json_str)
-                    self.access_token = self.token_data.get("access_token")
                 except:
                     pass
 
-        # 2. 如果没提取到，尝试作为纯 JSON 解析
-        if not self.access_token:
+        # 2. 如果没解析到 token_data，尝试作为纯 JSON 解析
+        if not self.token_data:
             try:
                 data = json.loads(token_data_raw)
                 # 兼容 rclone 导出的嵌套 JSON 格式
@@ -34,11 +44,13 @@ class OneDriveClient:
                     self.token_data = json.loads(data["token"])
                 else:
                     self.token_data = data
-                self.access_token = self.token_data.get("access_token")
             except:
-                # 3. 最后退路：当作原始字符串直接作为 access_token
-                self.access_token = token_data_raw
                 self.token_data = {"access_token": token_data_raw}
+
+        # 统一从 token_data 提取关键字段
+        self.access_token = self.token_data.get("access_token")
+        self.refresh_token = self.token_data.get("refresh_token")
+        if not self.client_id: self.client_id = self.token_data.get("client_id")
 
         if not self.access_token:
             raise Exception("无法从输入中提取有效的 Access Token")
@@ -47,6 +59,9 @@ class OneDriveClient:
     def refresh_access_token(self):
         """当 Token 失效时，使用 refresh_token 获取新的 access_token"""
         print("🔄 Access Token 可能已过期，正在尝试刷新...")
+        if not self.refresh_token or not self.client_id:
+            raise Exception("缺少 refresh_token 或 client_id，无法自动刷新")
+            
         url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
         data = {
             "client_id": self.client_id,
@@ -54,7 +69,9 @@ class OneDriveClient:
             "grant_type": "refresh_token",
             "scope": "offline_access Files.ReadWrite.All"
         }
-        resp = requests.post(url, data=data)
+        if self.client_secret: data["client_secret"] = self.client_secret
+
+        resp = self.session.post(url, data=data)
         if resp.status_code == 200:
             new_data = resp.json()
             self.access_token = new_data.get("access_token")
@@ -78,7 +95,7 @@ class OneDriveClient:
         except Exception as e:
             if "InvalidAuthenticationToken" in str(e) or "401" in str(e):
                 self.refresh_access_token()
-                return self._execute_upload(local_path) # 重试
+                return self._execute_upload(local_path) # 授权失效重试
             raise e
 
     def _execute_upload(self, local_path):
@@ -92,7 +109,7 @@ class OneDriveClient:
         if file_size < 4 * 1024 * 1024:
             url = f"{self.api_url}:/uploads/{file_name}:/content"
             with open(local_path, "rb") as f:
-                resp = requests.put(url, data=f, headers=self.get_headers(), timeout=300)
+                resp = self.session.put(url, data=f, headers=self.get_headers(), timeout=300)
                 resp.raise_for_status()
             return resp.json()
 
@@ -100,15 +117,15 @@ class OneDriveClient:
         # 路径：/uploads/文件名
         session_url = f"{self.api_url}:/uploads/{file_name}:/createUploadSession"
         session_res = requests.post(session_url, headers=self.get_headers()).json()
+        # session_res = self.session.post(session_url, json={}, headers=self.get_headers()).json()
         
         if 'uploadUrl' not in session_res:
             raise Exception(f"创建上传会话失败: {session_res}")
         
         upload_url = session_res['uploadUrl']
         
-        # 3. 分片上传逻辑
-        # OneDrive 要求分片大小必须是 320KB 的倍数，这里采用 10MB
-        chunk_size = 10 * 320 * 1024  # 3.2MB (也可改为 10 * 1024 * 1024) [cite: 25]
+        # 3. 分片上传逻辑 (320KB 的倍数)
+        chunk_size = 10 * 320 * 1024  # 约为 3.2MB。若网络差可减小此值
         print(f"🚀 开始大文件分片上传: {file_name} ({file_size/1024/1024:.2f}MB)")
         
         with open(local_path, "rb") as f:
@@ -123,19 +140,29 @@ class OneDriveClient:
                     "Content-Range": f"bytes {start}-{end-1}/{file_size}"
                 }
                 
-                # 注意：分片上传不需要全局 Authorization 头，session url 已包含权限
-                put_res = requests.put(upload_url, data=chunk_data, headers=headers, timeout=600)
-                
-                if put_res.status_code in [200, 201]:
-                    # 200/201 代表最后一片上传完成
-                    print(f"✅ 上传完成")
-                    return put_res.json()
-                elif put_res.status_code == 202:
-                    # 202 代表分片接受成功，继续下一片
-                    progress = (end / file_size) * 100
-                    print(f"  > 已上传 {progress:.1f}% ...")
-                    start = end
-                else:
+                # 针对每个分片添加简单的重试逻辑
+                success = False
+                for attempt in range(3):
+                    try:
+                        # 分片上传不需要 Authorization 头
+                        put_res = self.session.put(upload_url, data=chunk_data, headers=headers, timeout=300)
+                        if put_res.status_code in [200, 201]:
+                            print(f"✅ 上传完成")
+                            return put_res.json()
+                        elif put_res.status_code == 202:
+                            progress = (end / file_size) * 100
+                            print(f"  > 已上传 {progress:.1f}% ...")
+                            start = end
+                            success = True
+                            break
+                        else:
+                            print(f"  ! 分片上传异常 ({put_res.status_code})，重试中 {attempt+1}/3...")
+                    except Exception as e:
+                        print(f"  ! 网络错误: {str(e)}，重试中 {attempt+1}/3...")
+                    
+                    if attempt < 2: import time; time.sleep(2)
+
+                if not success:
                     raise Exception(f"分片上传失败: {put_res.text}")
 
     def get_file_info(self, item_id):

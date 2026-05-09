@@ -27,7 +27,7 @@ sed -i 's/\[.*\]/\[tmp_od\]/' "$CONF_PATH"
 echo "[*] 开始上传 (rclone v$(rclone version --short))..."
 
 # 3. 执行上传
-rclone --config "$CONF_PATH" copy "$FILE_PATH" tmp_od:uploads/ -v
+rclone --config "$CONF_PATH" copy "$FILE_PATH" tmp_od:uploads/ -v --onedrive-chunk-size 10M --transfers 1
 
 # 4. 获取 Item ID (用于本地回传)
 ITEM_ID=$(rclone --config "$CONF_PATH" lsf tmp_od:uploads/ --format "i" --files-only | head -n 1)
