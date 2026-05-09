@@ -17,7 +17,11 @@ on:
       ali_path:
         description: '阿里云盘存储路径'
         default: '/'
-        required: false        
+        required: false
+      output_filename:
+        description: '自定义输出文件名（不含扩展名时由 yt-dlp 自动追加）'
+        default: ''
+        required: false
 
 jobs:
   download:
@@ -34,20 +38,26 @@ jobs:
       - name: 3. 执行解密下载
         run: |
           echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
-          
+
           # 严格对齐附件的成功参数
           COMMON_ARGS="--cookies cookies.txt --remote-components ejs:github --js-runtimes node --no-check-certificates --force-ipv4"
-          
+
           # 生成唯一文件名前缀，确保不会与仓库已有文件冲突
           TIMESTAMP_MS=$(date +%s%3N)
-          OUTPUT_TEMPLATE="${TIMESTAMP_MS}_%(title)s-%(id)s.%(ext)s"
-          
+
+          # 判断是否使用自定义文件名
+          if [ -n "${{ github.event.inputs.output_filename }}" ]; then
+            OUTPUT_TEMPLATE="${TIMESTAMP_MS}_${{ github.event.inputs.output_filename }}.%(ext)s"
+          else
+            OUTPUT_TEMPLATE="${TIMESTAMP_MS}_%(title)s-%(id)s.%(ext)s"
+          fi
+
           if [ "${{ github.event.inputs.download_type }}" = "audio" ]; then
             yt-dlp $COMMON_ARGS -f "bestaudio" --extract-audio --audio-format opus "${{ github.event.inputs.video_url }}" -o "$OUTPUT_TEMPLATE"
           else
             yt-dlp $COMMON_ARGS -f "best[height<=720][ext=mp4]/best" "${{ github.event.inputs.video_url }}" -o "$OUTPUT_TEMPLATE"
           fi
-          
+
           # 精确获取本次下载生成的文件（匹配时间戳前缀）
           FINAL_FILE=$(ls -t ${TIMESTAMP_MS}_* 2>/dev/null | head -n 1)
           if [ -z "$FINAL_FILE" ]; then
@@ -67,7 +77,7 @@ jobs:
           ./providers/${PROVIDER}.sh "$FINAL_FILE" || echo "上传任务超时"
 
       - name: 5. 自动清理 GitHub 空间
-        if: always() 
+        if: always()
         run: |
           echo "[*] 正在执行安全清理..."
           rm -f cookies.txt          # 删除包含账号凭证的 Cookie [cite: 9, 42]
