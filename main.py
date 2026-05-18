@@ -4,6 +4,8 @@ import os
 import time
 # 导入原脚本中的核心触发逻辑
 from youtube import trigger_github_action
+from utils import get_cookies, verify_cookies, refresh_cookies
+from playwright.sync_api import BrowserContext, Page
 
 
 class BatchDownloader:
@@ -84,10 +86,45 @@ class BatchDownloader:
             print("❌ 错误: 存储后端为 'aliyun' 时，必须在 config 中配置 token。")
             sys.exit(1)
 
+        # 检查本地是否已有 cookies.txt，没有则引导用户登录
+        context = None
+        page = None
+        if not os.path.exists("cookies.txt"):
+            print("[!] 未检测到 cookies.txt，需要登录 YouTube 获取 Cookie...")
+            try:
+                context, page = get_cookies()
+            except Exception as e:
+                print(f"❌ 获取 Cookie 失败: {e}")
+                sys.exit(1)
+        else:
+            print("[+] 检测到已存在的 cookies.txt，跳过登录步骤。")
+
         total = len(tasks)
         print(f"📂 发现 {total} 个任务，准备开始批量处理...\n")
 
         for i, (url, task_value) in enumerate(tasks.items(), 1):
+            # 每完成两个任务后，检测 cookies 是否还有效
+            if i > 1 and (i - 1) % 2 == 0:
+                if context and page:
+                    print("[*] 已完成两个任务，正在检测 Cookie 有效性...")
+                    if not verify_cookies(page):
+                        print("[!] Cookie 已失效，尝试自愈刷新...")
+                        if not refresh_cookies(page, context, output_path="cookies.txt"):
+                            print("[-] 自愈刷新失败，需要重新登录...")
+                            try:
+                                context.close()
+                            except Exception:
+                                pass
+                            try:
+                                context, page = get_cookies()
+                            except Exception as e:
+                                print(f"❌ 重新获取 Cookie 失败: {e}")
+                                sys.exit(1)
+                else:
+                    # 如果之前没有浏览器上下文（比如用户预先提供了 cookies.txt），
+                    # 此时无法验证，跳过检测
+                    pass
+
             filename, mode = self.parse_task(task_value, global_cfg)
 
             # 如果未指定文件名，使用当前服务器时间毫秒戳
@@ -126,6 +163,21 @@ class BatchDownloader:
                 print(f"❌ 任务 {i} 出错: {e}")
                 print("批量任务已终止。")
                 sys.exit(1)
+
+        # 所有任务完成后，关闭浏览器并删除 cookies.txt
+        if context:
+            try:
+                context.close()
+                print("[+] 浏览器已关闭。")
+            except Exception as e:
+                print(f"[!] 关闭浏览器时出错: {e}")
+
+        if os.path.exists("cookies.txt"):
+            try:
+                os.remove("cookies.txt")
+                print("[+] cookies.txt 已删除。")
+            except Exception as e:
+                print(f"[!] 删除 cookies.txt 时出错: {e}")
 
         print("✨ 所有批量任务处理完毕。")
 
