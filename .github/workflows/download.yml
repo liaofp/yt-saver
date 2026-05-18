@@ -12,14 +12,14 @@ on:
       storage_provider:
         default: 'aliyun'
       provider_token:
-        description: '阿里云盘 Refresh Token'
+        description: 'Aliyun Drive Refresh Token'
         required: false
       ali_path:
-        description: '阿里云盘存储路径'
+        description: 'Aliyun Drive storage path'
         default: '/'
         required: false
       output_filename:
-        description: '自定义输出文件名（纯文件名，不含扩展名）'
+        description: 'Custom output filename (pure name, no extension)'
         default: ''
         required: false
 
@@ -27,31 +27,32 @@ jobs:
   download:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 代码检出与环境强化
+      - name: 1. Checkout code & strengthen environment
         uses: actions/checkout@v4
 
-      - name: 2. 安装依赖 (强制更新 yt-dlp)
+      - name: 2. Install dependencies (force-update yt-dlp)
         run: |
           sudo python3 -m pip install -U yt-dlp
           sudo apt-get update && sudo apt-get install -y ffmpeg nodejs jq
 
-      - name: 3. 执行解密下载
+      - name: 3. Execute decryption download
         run: |
           echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
 
-          # 严格对齐附件的成功参数
+          # Strictly align with successful attachment parameters
           COMMON_ARGS="--cookies cookies.txt --remote-components ejs:github --js-runtimes node --no-check-certificates --force-ipv4"
 
-          # 先生成时间戳，确保下载前后使用同一个值
+          # Generate timestamp first so the same value is used before and after download
           TIMESTAMP_MS=$(date +%s%3N)
 
-          # 判断是否使用自定义文件名
+          # Determine whether a custom filename is used
           if [ -n "${{ github.event.inputs.output_filename }}" ]; then
-            # 用户指定了文件名：直接使用，不附加时间戳，yt-dlp 自动追加正确扩展名
+            # User specified a filename: use it directly without appending timestamp;
+            # yt-dlp will append the correct extension automatically
             OUTPUT_TEMPLATE="${{ github.event.inputs.output_filename }}.%(ext)s"
             FILE_PREFIX="${{ github.event.inputs.output_filename }}"
           else
-            # 未指定文件名：使用时间戳作为文件名
+            # No filename specified: use timestamp as filename
             OUTPUT_TEMPLATE="${TIMESTAMP_MS}.%(ext)s"
             FILE_PREFIX="${TIMESTAMP_MS}"
           fi
@@ -62,16 +63,16 @@ jobs:
             yt-dlp $COMMON_ARGS -f "best[height<=720][ext=mp4]/best" "${{ github.event.inputs.video_url }}" -o "$OUTPUT_TEMPLATE"
           fi
 
-          # 获取实际下载生成的文件（匹配文件名前缀）
+          # Locate the actually downloaded file (match filename prefix)
           FINAL_FILE=$(ls -t ${FILE_PREFIX}.* 2>/dev/null | head -n 1)
 
           if [ -z "$FINAL_FILE" ]; then
-            echo "❌ 错误：yt-dlp 下载失败，未找到输出文件"
+            echo "❌ Error: yt-dlp download failed, no output file found"
             exit 1
           fi
           echo "FINAL_FILE=$FINAL_FILE" >> $GITHUB_ENV
 
-      - name: 4. 动态插件上传
+      - name: 4. Dynamic plugin upload
         env:
           TOKEN: ${{ github.event.inputs.storage_provider == 'aliyun' && github.event.inputs.provider_token || secrets.ONEDRIVE_TOKEN }}
           PROVIDER: ${{ github.event.inputs.storage_provider }}
@@ -79,13 +80,13 @@ jobs:
         run: |
           chmod +x ./providers/${PROVIDER}.sh
           # ./providers/${PROVIDER}.sh "$FINAL_FILE" "$TOKEN"
-          ./providers/${PROVIDER}.sh "$FINAL_FILE" || echo "上传任务超时"
+          ./providers/${PROVIDER}.sh "$FINAL_FILE" || echo "Upload task timed out"
 
-      - name: 5. 自动清理 GitHub 空间
+      - name: 5. Automatic GitHub space cleanup
         if: always()
         run: |
-          echo "[*] 正在执行安全清理..."
-          rm -f cookies.txt          # 删除包含账号凭证的 Cookie [cite: 9, 42]
-          rm -f "${{ env.FINAL_FILE }}" 2>/dev/null || true  # 删除本次下载的媒体文件
-          rm -rf ./*.part            # 删除可能的下载缓存
-          echo "✅ 数据已清理，无残留。"
+          echo "[*] Performing secure cleanup..."
+          rm -f cookies.txt          # Delete cookie containing account credentials
+          rm -f "${{ env.FINAL_FILE }}" 2>/dev/null || true  # Delete downloaded media file
+          rm -rf ./*.part            # Delete possible download caches
+          echo "✅ Data cleaned, no residue left."

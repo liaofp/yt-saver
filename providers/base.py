@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 import os
+from typing import Optional
+
 
 class StorageProvider(ABC):
-    def __init__(self, config):
-        # 路径可配置，支持波浪号扩展
-        raw_path = config.get('Storage', 'download_path', fallback='~/Downloads')
-        self.download_dir = os.path.expanduser(raw_path)
+    def __init__(self, config) -> None:
+        # Path is configurable and supports tilde expansion
+        raw_path: str = config.get("Storage", "download_path", fallback="~/Downloads")
+        self.download_dir: str = os.path.expanduser(raw_path)
 
     @abstractmethod
-    def handle_result(self, logs, token=None):
-        """解析日志并执行下载/清理"""
-        pass
+    def handle_result(self, logs: str, token: Optional[str] = None) -> None:
+        """Parse logs and perform download / cleanup."""
+        raise NotImplementedError

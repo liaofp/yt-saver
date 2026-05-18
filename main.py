@@ -1,116 +1,126 @@
+from __future__ import annotations
+
 import yaml
 import sys
 import os
 import time
-# 导入原脚本中的核心触发逻辑
+from typing import Any, Dict, Optional, Tuple
+
+# Import core trigger logic from the original script
 from youtube import trigger_github_action
 from utils import get_cookies, verify_cookies, refresh_cookies, close_browser
 from playwright.sync_api import BrowserContext, Page
 
 
 class BatchDownloader:
-    def __init__(self, config_path: str = "tasks.yml"):
-        self.config_path = config_path
-        self.data = self.load_config()
+    def __init__(self, config_path: str = "tasks.yml") -> None:
+        self.config_path: str = config_path
+        self.data: Dict[str, Any] = self.load_config()
 
-    def load_config(self):
+    def load_config(self) -> Dict[str, Any]:
         if not os.path.exists(self.config_path):
-            print(f"❌ 错误: 找不到配置文件 {self.config_path}")
+            print(f"❌ Error: Configuration file {self.config_path} not found")
             sys.exit(1)
-        with open(self.config_path, 'r', encoding='utf-8') as f:
+        with open(self.config_path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f)
 
     @staticmethod
-    def parse_task(task_value, global_cfg):
+    def parse_task(
+        task_value: Any, global_cfg: Dict[str, Any]
+    ) -> Tuple[Optional[str], str]:
         """
-        解析单个任务的配置。
-        支持两种格式：
-          1. 字符串: "filename"  -> 使用指定文件名（不带扩展名），mode 继承全局
-          2. 字典:   {filename: "xxx", mode: "audio"} -> 逐项解析，缺失项继承全局
-        返回: (filename, mode)
+        Parse a single task configuration.
+        Supports two formats:
+          1. String: "filename"  -> use the given filename (no extension), mode inherits global
+          2. Dict:   {filename: "xxx", mode: "audio"} -> per-item parsing, missing keys inherit global
+        Returns: (filename, mode)
         """
+        filename: Optional[str] = None
+        mode: str
+
         if isinstance(task_value, str):
-            # 简单格式：字符串直接作为文件名
+            # Simple format: string is used directly as filename
             filename = task_value.strip() if task_value.strip() else None
             mode = global_cfg.get("mode", "audio")
         elif isinstance(task_value, dict):
-            # 完整格式：从字典中提取，缺失项使用全局默认值
+            # Full format: extract from dict, fallback to global defaults
             filename = task_value.get("filename")
             if filename and isinstance(filename, str):
                 filename = filename.strip() or None
             mode = task_value.get("mode", global_cfg.get("mode", "audio"))
         else:
-            # 不支持的类型，全部使用默认值
+            # Unsupported type, use all defaults
             filename = None
             mode = global_cfg.get("mode", "audio")
 
         return filename, mode
 
     @staticmethod
-    def normalize_filename(filename, mode):
+    def normalize_filename(filename: Optional[str], mode: str) -> Optional[str]:
         """
-        规范化文件名：
-        - 去掉用户可能误填的扩展名（由 yt-dlp 根据 mode 自动决定）
+        Normalize the filename:
+        - Strip any user-supplied extension (yt-dlp decides the correct one based on mode)
         - audio -> .opus, video -> .mp4
-        返回不带扩展名的纯文件名（用于 yt-dlp -o 模板）
+        Returns the pure filename without extension (for yt-dlp -o template)
         """
         if not filename:
             return None
 
-        # 去掉常见的扩展名后缀（用户可能误填）
-        # 音频扩展名
-        for ext in ['.opus', '.mp3', '.m4a', '.wav', '.flac', '.ogg', '.webm']:
+        # Strip common audio extensions the user may have mistakenly added
+        for ext in [".opus", ".mp3", ".m4a", ".wav", ".flac", ".ogg", ".webm"]:
             if filename.lower().endswith(ext):
-                filename = filename[:-len(ext)]
+                filename = filename[: -len(ext)]
                 break
-        # 视频扩展名
-        for ext in ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm']:
+        # Strip common video extensions
+        for ext in [".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm"]:
             if filename.lower().endswith(ext):
-                filename = filename[:-len(ext)]
+                filename = filename[: -len(ext)]
                 break
 
         return filename
 
-    def run(self):
-        global_cfg = self.data.get("config", {})
-        tasks = self.data.get("tasks", {})
+    def run(self) -> None:
+        global_cfg: Dict[str, Any] = self.data.get("config", {})
+        tasks: Dict[str, Any] = self.data.get("tasks", {})
 
         if not tasks:
-            print("! 没有发现待处理的任务。")
+            print("! No pending tasks found.")
             return
 
-        # 前置校验：阿里云盘必须配置 token
-        storage = global_cfg.get("storage", "onedrive")
-        token = global_cfg.get("token", None)
+        # Pre-check: Aliyun Drive must have a token configured
+        storage: str = global_cfg.get("storage", "onedrive")
+        token: Optional[str] = global_cfg.get("token", None)
         if storage == "aliyun" and not token:
-            print("❌ 错误: 存储后端为 'aliyun' 时，必须在 config 中配置 token。")
+            print("❌ Error: 'aliyun' storage backend requires a token in config.")
             sys.exit(1)
 
-        # 检查本地是否已有 cookies.txt，没有则引导用户登录
-        context = None
-        page = None
+        # Check whether cookies.txt exists locally; if not, guide the user to log in
+        context: Optional[BrowserContext] = None
+        page: Optional[Page] = None
         if not os.path.exists("cookies.txt"):
-            print("[!] 未检测到 cookies.txt，需要登录 YouTube 获取 Cookie...")
+            print(
+                "[!] cookies.txt not detected. YouTube login is required to obtain cookies..."
+            )
             try:
                 context, page = get_cookies()
             except Exception as e:
-                print(f"❌ 获取 Cookie 失败: {e}")
+                print(f"❌ Failed to obtain cookies: {e}")
                 sys.exit(1)
         else:
-            print("[+] 检测到已存在的 cookies.txt，跳过登录步骤。")
+            print("[+] Existing cookies.txt detected, skipping login step.")
 
-        total = len(tasks)
-        print(f"📂 发现 {total} 个任务，准备开始批量处理...\n")
+        total: int = len(tasks)
+        print(f"📂 Found {total} tasks, starting batch processing...\n")
 
         for i, (url, task_value) in enumerate(tasks.items(), 1):
-            # 每完成两个任务后，检测 cookies 是否还有效
+            # After every two tasks, verify whether cookies are still valid
             if i > 1 and (i - 1) % 2 == 0:
                 if context and page:
-                    print("[*] 已完成两个任务，正在检测 Cookie 有效性...")
+                    print("[*] Two tasks completed, checking cookie validity...")
                     if not verify_cookies(page):
-                        print("[!] Cookie 已失效，尝试自愈刷新...")
+                        print("[!] Cookies expired, attempting self-healing refresh...")
                         if not refresh_cookies(page, context, output_path="cookies.txt"):
-                            print("[-] 自愈刷新失败，需要重新登录...")
+                            print("[-] Self-healing refresh failed, re-login required...")
                             try:
                                 close_browser(context)
                             except Exception:
@@ -118,68 +128,68 @@ class BatchDownloader:
                             try:
                                 context, page = get_cookies()
                             except Exception as e:
-                                print(f"❌ 重新获取 Cookie 失败: {e}")
+                                print(f"❌ Failed to re-obtain cookies: {e}")
                                 sys.exit(1)
                 else:
-                    # 如果之前没有浏览器上下文（比如用户预先提供了 cookies.txt），
-                    # 此时无法验证，跳过检测
+                    # If there was no browser context (e.g. user pre-supplied cookies.txt),
+                    # verification is impossible; skip
                     pass
 
             filename, mode = self.parse_task(task_value, global_cfg)
 
-            # 如果未指定文件名，使用当前服务器时间毫秒戳
+            # If no filename is specified, use the current server timestamp in milliseconds
             if not filename:
                 filename = f"{int(time.time() * 1000)}"
             else:
-                # 用户指定了文件名，去掉可能误填的扩展名
+                # User specified a filename; strip any mistakenly added extension
                 filename = self.normalize_filename(filename, mode)
 
-            print(f"--- [任务 {i}/{total}] URL: {url} ---")
-            print(f"    模式: {mode} | 文件名: {filename}")
+            print(f"--- [Task {i}/{total}] URL: {url} ---")
+            print(f"    Mode: {mode} | Filename: {filename}")
 
-            # 动态模拟 argparse 对象
+            # Dynamically simulate an argparse Namespace object
             class Args:
-                def __init__(self):
-                    self.url = url
-                    self.mode = mode
-                    self.storage = storage
-                    self.branch = global_cfg.get("branch", "main")
-                    self.verbose = global_cfg.get("verbose", False)
-                    self.token = token
-                    self.path = global_cfg.get("path", "/")
-                    self.filename = filename
+                def __init__(self) -> None:
+                    self.url: str = url
+                    self.mode: str = mode
+                    self.storage: str = storage
+                    self.branch: str = global_cfg.get("branch", "main")
+                    self.verbose: bool = global_cfg.get("verbose", False)
+                    self.token: Optional[str] = token
+                    self.path: str = global_cfg.get("path", "/")
+                    self.filename: Optional[str] = filename
 
             current_args = Args()
 
             try:
-                # 调用 youtube.py 中的核心触发函数
+                # Call the core trigger function from youtube.py
                 trigger_github_action(current_args)
-                print(f"✅ 任务 {i} 完成回传。\n")
+                print(f"✅ Task {i} retrieval completed.\n")
             except SystemExit:
-                # trigger_github_action 在失败时调用 sys.exit(1)，任务失败立即终止程序
-                print(f"❌ 任务 {i} 触发失败，批量任务已终止。")
+                # trigger_github_action calls sys.exit(1) on failure; abort immediately
+                print(f"❌ Task {i} trigger failed, batch processing terminated.")
                 sys.exit(1)
             except Exception as e:
-                print(f"❌ 任务 {i} 出错: {e}")
-                print("批量任务已终止。")
+                print(f"❌ Task {i} error: {e}")
+                print("Batch processing terminated.")
                 sys.exit(1)
 
-        # 所有任务完成后，关闭浏览器并删除 cookies.txt
+        # After all tasks, close the browser and delete cookies.txt
         if context:
             close_browser(context)
-            print("[+] 浏览器已关闭。")
+            print("[+] Browser closed.")
 
         if os.path.exists("cookies.txt"):
             try:
                 os.remove("cookies.txt")
-                print("[+] cookies.txt 已删除。")
+                print("[+] cookies.txt deleted.")
             except Exception as e:
-                print(f"[!] 删除 cookies.txt 时出错: {e}")
+                print(f"[!] Error deleting cookies.txt: {e}")
 
-        print("✨ 所有批量任务处理完毕。")
+        print("✨ All batch tasks completed.")
 
 
 if __name__ == "__main__":
-    # 确保安装了 pyyaml: pip install pyyaml
+    # Make sure pyyaml is installed: pip install pyyaml
     downloader = BatchDownloader()
     downloader.run()
