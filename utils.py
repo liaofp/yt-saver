@@ -221,49 +221,83 @@ def is_login(context: BrowserContext) -> bool:
     return required_core_cookies.issubset(cookie_names)
 
 
+# 全局 Playwright 实例，用于保持浏览器进程生命周期
+_playwright_instance = None
+
 def get_cookies() -> Tuple[BrowserContext, Page]:
-    with sync_playwright() as playwright:
-        # 1. 启动伪装好的本地浏览器
-        context, page = initialize_browser(playwright, headless=False)
-        
-        print(f"[*] 正在打开 YouTube 首页...")
-        page.goto("https://www.youtube.com/")
-        
-        print("[!] [事件监听开启] 请在弹出的浏览器中点击登录并完成登录操作...")
-        
-        # ==================== 事件一：监听登录成功 DOM 信号 ====================
+    global _playwright_instance
+    
+    # 如果已有实例，先关闭避免冲突
+    if _playwright_instance:
         try:
-            avatar_selector = "button#avatar-btn"
-            # wait_for_selector 本身就是一个高效的底层事件监听器
-            # 它会在元素出现的那一毫秒立刻向下执行，最长等待 120 秒
-            page.wait_for_selector(avatar_selector, timeout=120000)
-            print("[+] 【事件一激活】: 网页端检测到用户头像，DOM 层登录确认成功！")
+            _playwright_instance.stop()
         except Exception:
-            print("[-] 登录超时或未检测到登录成功的网页元素，程序退出。")
+            pass
+    
+    _playwright_instance = sync_playwright().start()
+    
+    # 1. 启动伪装好的本地浏览器
+    context, page = initialize_browser(_playwright_instance, headless=False)
+    
+    print(f"[*] 正在打开 YouTube 首页...")
+    page.goto("https://www.youtube.com/")
+    
+    print("[!] [事件监听开启] 请在弹出的浏览器中点击登录并完成登录操作...")
+    
+    # ==================== 事件一：监听登录成功 DOM 信号 ====================
+    try:
+        avatar_selector = "button#avatar-btn"
+        # wait_for_selector 本身就是一个高效的底层事件监听器
+        # 它会在元素出现的那一毫秒立刻向下执行，最长等待 120 秒
+        page.wait_for_selector(avatar_selector, timeout=120000)
+        print("[+] 【事件一激活】: 网页端检测到用户头像，DOM 层登录确认成功！")
+    except Exception:
+        print("[-] 登录超时或未检测到登录成功的网页元素，程序退出。")
+        context.close()
+        _playwright_instance.stop()
+        _playwright_instance = None
+        return None, None
+
+    # ==================== 事件二：监听核心 Cookie 写入内存 ====================
+    print("[*] [事件监听开启] 正在监控浏览器内存，等待核心加密会话 Cookie 同步...")
+    
+    max_cookie_wait = 15  # 最高等待 15 秒用于后台跨域同步
+    start_time = time.time()
+    cookies_captured = False
+    
+    while time.time() - start_time < max_cookie_wait:
+        if is_login(context):
+            print("[+] 【事件二激活】: 核心安全 Cookie (__Secure-3PSID 等) 已完全落入内存！")
+            cookies_captured = True
+            break
+        time.sleep(0.5)  # 以 500 毫秒的高频速率轮询内存状态
+        
+    if not cookies_captured:
+        print("[!] 警告: 虽检测到登录，但核心安全 Cookie 在 15 秒内未完整同步，将强制抓取现有片段。")
+
+    # 触发无延迟写入：一旦事件二满足，瞬间完成 Netscape 文本文件的生成
+    save_cookies(context, cookies_file="cookies.txt")
+    print("[+] 状态机流转：Cookie 文件写入已即时完成，完美适配 yt-dlp。")
+    return context, page
+
+
+def close_browser(context: BrowserContext = None):
+    """
+    关闭浏览器上下文及 Playwright 实例。
+    应在所有任务完成后调用。
+    """
+    global _playwright_instance
+    if context:
+        try:
             context.close()
-            return
-
-        # ==================== 事件二：监听核心 Cookie 写入内存 ====================
-        print("[*] [事件监听开启] 正在监控浏览器内存，等待核心加密会话 Cookie 同步...")
-        
-        max_cookie_wait = 15  # 最高等待 15 秒用于后台跨域同步
-        start_time = time.time()
-        cookies_captured = False
-        
-        while time.time() - start_time < max_cookie_wait:
-            if is_login(context):
-                print("[+] 【事件二激活】: 核心安全 Cookie (__Secure-3PSID 等) 已完全落入内存！")
-                cookies_captured = True
-                break
-            time.sleep(0.5)  # 以 500 毫秒的高频速率轮询内存状态
-            
-        if not cookies_captured:
-            print("[!] 警告: 虽检测到登录，但核心安全 Cookie 在 15 秒内未完整同步，将强制抓取现有片段。")
-
-        # 触发无延迟写入：一旦事件二满足，瞬间完成 Netscape 文本文件的生成
-        save_cookies(context, cookies_file="cookies.txt")
-        print("[+] 状态机流转：Cookie 文件写入已即时完成，完美适配 yt-dlp。")
-        return context, page
+        except Exception:
+            pass
+    if _playwright_instance:
+        try:
+            _playwright_instance.stop()
+        except Exception:
+            pass
+        _playwright_instance = None
 
 
 

@@ -4,7 +4,7 @@ import os
 import time
 # 导入原脚本中的核心触发逻辑
 from youtube import trigger_github_action
-from utils import get_cookies, verify_cookies, refresh_cookies
+from utils import get_cookies, verify_cookies, refresh_cookies, close_browser
 from playwright.sync_api import BrowserContext, Page
 
 
@@ -112,7 +112,7 @@ class BatchDownloader:
                         if not refresh_cookies(page, context, output_path="cookies.txt"):
                             print("[-] 自愈刷新失败，需要重新登录...")
                             try:
-                                context.close()
+                                close_browser(context)
                             except Exception:
                                 pass
                             try:
@@ -166,11 +166,8 @@ class BatchDownloader:
 
         # 所有任务完成后，关闭浏览器并删除 cookies.txt
         if context:
-            try:
-                context.close()
-                print("[+] 浏览器已关闭。")
-            except Exception as e:
-                print(f"[!] 关闭浏览器时出错: {e}")
+            close_browser(context)
+            print("[+] 浏览器已关闭。")
 
         if os.path.exists("cookies.txt"):
             try:
