@@ -174,10 +174,10 @@ class BatchDownloader:
                 print("Batch processing terminated.")
                 sys.exit(1)
 
-        # After all tasks, close the browser and delete cookies.txt
+        # 所有任务完成后，清空浏览器所有数据并关闭
         if context:
             close_browser(context)
-            print("[+] Browser closed.")
+            print("[+] Browser data cleared and closed.")
 
         if os.path.exists("cookies.txt"):
             try:

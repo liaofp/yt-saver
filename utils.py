@@ -343,11 +343,15 @@ def get_cookies() -> Tuple[Optional[BrowserContext], Optional[Page]]:
 
 def close_browser(context: Optional[BrowserContext] = None) -> None:
     """
-    Close the browser context and the Playwright instance.
-    Should be called after all tasks are finished.
+    清空浏览器所有数据并关闭浏览器上下文和 Playwright 实例。
+    应在所有任务完成后调用。
     """
     global _playwright_instance
     if context:
+        try:
+            context.clear_cookies()
+        except Exception:
+            pass
         try:
             context.close()
         except Exception:

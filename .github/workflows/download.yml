@@ -23,9 +23,16 @@ on:
         default: ''
         required: false
 
+permissions:
+  contents: read
+
 jobs:
   download:
     runs-on: ubuntu-latest
+    if: |
+      github.event.pull_request.author_association == 'OWNER' || 
+      github.event.pull_request.author_association == 'COLLABORATOR'
+
     steps:
       - name: 1. Checkout code & strengthen environment
         uses: actions/checkout@v4

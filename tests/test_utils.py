@@ -96,11 +96,20 @@ class TestRefreshCookies(unittest.TestCase):
 class TestCloseBrowser(unittest.TestCase):
     def test_close_browser_no_crash(self) -> None:
         mock_context = mock.MagicMock()
-        # Should not raise even if context.close raises
+        # Should not raise even if context.clear_cookies or context.close raises
         with mock.patch.object(
-            mock_context, "close", side_effect=Exception("boom")
+            mock_context, "clear_cookies", side_effect=Exception("boom")
         ):
-            utils.close_browser(mock_context)
+            with mock.patch.object(
+                mock_context, "close", side_effect=Exception("boom")
+            ):
+                utils.close_browser(mock_context)
+
+    def test_close_browser_clears_cookies(self) -> None:
+        mock_context = mock.MagicMock()
+        utils.close_browser(mock_context)
+        mock_context.clear_cookies.assert_called_once()
+        mock_context.close.assert_called_once()
 
 
 if __name__ == "__main__":

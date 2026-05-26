@@ -21,14 +21,28 @@ A framework for downloading YouTube videos/audio via GitHub Actions and automati
 
 ## Quick Start
 
-### 1. Prerequisites
+### 1. Prepare Your GitHub Repository
+
+Before using this project, you must complete the following two steps:
+
+1. **Register a GitHub account**: If you don't have one, sign up at [github.com](https://github.com).
+2. **Fork this repository**: Click the **Fork** button in the top-right corner of this page to copy the repository to your own GitHub account. All subsequent operations (triggering Actions, setting Secrets, downloading files) are performed within **your forked personal repository**.
+
+After forking, clone the repository to your local machine:
+
+```bash
+git clone https://github.com/<your-username>/yt-saver.git
+cd yt-saver
+```
+
+### 2. Prerequisites
 
 - **Python 3.8+**
-- **GitHub CLI (`gh`)** — must be installed, authenticated, and have workflow / secrets write access to the current repo
+- **GitHub CLI (`gh`)** — must be installed, authenticated, and have workflow / secrets write access to your forked repo
 - **uv** (recommended) or `pip`
 - **rclone** — required when using **OneDrive** (both local retrieval and cloud cleanup depend on it)
 
-### 2. Install Dependencies
+### 3. Install Dependencies
 
 ```bash
 uv venv .venv
@@ -38,7 +52,7 @@ uv pip install pyyaml requests playwright
 
 > If using `pip`, replace `uv pip install` with `pip install pyyaml requests playwright`.
 
-### 3. Configure OneDrive (Recommended Default Storage)
+### 4. Configure OneDrive (Recommended Default Storage)
 
 OneDrive is the **recommended default storage** for this project. Complete the following steps once and reuse indefinitely.
 

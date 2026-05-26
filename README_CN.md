@@ -21,14 +21,28 @@
 
 ## 快速开始
 
-### 1. 前置要求
+### 1. 准备 GitHub 仓库
+
+使用本项目前，你必须先完成以下两步：
+
+1. **注册 GitHub 账号**：若还没有，请前往 [github.com](https://github.com) 注册。
+2. **Fork 本仓库**：点击本页面右上角的 **Fork** 按钮，将仓库复制到你自己的 GitHub 账号下。所有后续操作（触发 Actions、设置 Secrets、下载文件）均在**你 Fork 后的个人仓库**中进行。
+
+Fork 完成后，将仓库克隆到本地：
+
+```bash
+git clone https://github.com/<你的用户名>/yt-saver.git
+cd yt-saver
+```
+
+### 2. 前置要求
 
 - **Python 3.8+**
-- **GitHub CLI (`gh`)** — 必须已安装并登录，且对当前仓库有 workflow / secrets 写入权限
+- **GitHub CLI (`gh`)** — 必须已安装并登录，且对你 Fork 的仓库有 workflow / secrets 写入权限
 - **uv**（推荐）或 `pip`
 - **rclone** — 使用 **OneDrive** 时必须安装（本地回传与云端清理均依赖它）
 
-### 2. 安装依赖
+### 3. 安装依赖
 
 ```bash
 uv venv .venv
@@ -38,7 +52,7 @@ uv pip install pyyaml requests playwright
 
 > 若使用 `pip`，将上述 `uv pip install` 替换为 `pip install pyyaml requests playwright` 即可。
 
-### 3. 配置 OneDrive（推荐默认存储）
+### 4. 配置 OneDrive（推荐默认存储）
 
 OneDrive 是本项目的**默认推荐存储**，配置一次即可长期使用。请按以下步骤完成 rclone 与 OneDrive 的整合。
 
