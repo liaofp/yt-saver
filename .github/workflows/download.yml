@@ -30,8 +30,8 @@ jobs:
   download:
     runs-on: ubuntu-latest
     if: |
-      github.event.pull_request.author_association == 'OWNER' || 
-      github.event.pull_request.author_association == 'COLLABORATOR'
+      github.actor == github.repository_owner ||
+      contains(['COLLABORATOR', 'MEMBER'], github.event.sender.author_association)
 
     steps:
       - name: 1. Checkout code & strengthen environment
