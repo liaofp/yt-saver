@@ -29,9 +29,7 @@ permissions:
 jobs:
   download:
     runs-on: ubuntu-latest
-    if: |
-      github.actor == github.repository_owner ||
-      contains(['COLLABORATOR', 'MEMBER'], github.event.sender.author_association)
+    if: github.actor == github.repository_owner
 
     steps:
       - name: 1. Checkout code & strengthen environment
