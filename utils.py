@@ -137,7 +137,7 @@ def initialize_browser(
 
     # 2. Create a context that fully mimics a regular user environment
     context: BrowserContext = browser.new_context(
-        user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
         viewport={"width": 1280, "height": 720},
         locale="zh-CN",
         timezone_id="Asia/Shanghai",
