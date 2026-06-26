@@ -39,6 +39,8 @@ jobs:
         run: |
           sudo python3 -m pip install -U yt-dlp
           sudo apt-get update && sudo apt-get install -y ffmpeg nodejs jq
+          # Install Deno as JS runtime (required for YouTube signature decryption in 2026)
+          curl -fsSL https://deno.land/install.sh | sudo DENO_INSTALL=/usr/local sh
           # Ensure yt-dlp is updated to the latest stable version
           sudo yt-dlp --update || true
 
@@ -54,16 +56,27 @@ jobs:
           echo "$COOKIE_CONTENT" > cookies.txt
 
           # yt-dlp args: use default client behavior with JS challenge solver enabled
+          # YouTube now requires PO Token for web client; exclude broken android_sdkless
           BASE_ARGS=(
             --cookies cookies.txt
             --user-agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
             --add-header "Accept-Language:en-US,en;q=0.9"
             --remote-components ejs:github
-            --js-runtimes node
+            --js-runtimes node,deno
             --no-check-certificates
             --retries 10
             --fragment-retries 10
           )
+
+          # Check if PO Token is provided via secret
+          PO_TOKEN="${{ secrets.YOUTUBE_PO_TOKEN }}"
+          if [ -n "$PO_TOKEN" ]; then
+            echo "[*] Using PO Token for YouTube authentication..."
+            BASE_ARGS+=(--extractor-args "youtube:player_client=web;po_token=web.gvs+$PO_TOKEN")
+          else
+            echo "[!] No PO Token found. Using default clients with android_sdkless excluded..."
+            BASE_ARGS+=(--extractor-args "youtube:player_client=default,-android_sdkless")
+          fi
 
           # Generate timestamp first so the same value is used before and after download
           TIMESTAMP_MS=$(date +%s%3N)
