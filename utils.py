@@ -115,6 +115,7 @@ def initialize_browser(
         "--disable-infobars",  # hide "controlled by automated test software" bar
         "--window-size=1280,720",
         "--lang=zh-CN,zh;q=0.9",  # mimic normal language header
+        "--incognito",  # force incognito mode: no disk persistence, no shared profile
     ]
 
     launch_args: dict[str, object] = {
@@ -177,22 +178,34 @@ def save_cookies(
         with open(output_absolute_path, "w", encoding="utf-8") as f:
             # Write Netscape spec header
             f.write("# Netscape HTTP Cookie File\n")
-            f.write("# http://curl.haxx.se/rfc/cookie_spec.html\n")
+            f.write("# https://curl.haxx.se/rfc/cookie_spec.html\n")
             f.write("# This is a generated file! Do not edit.\n\n")
 
             for cookie in playwright_cookies:
                 domain: str = cookie["domain"]
+                # Only keep cookies relevant to YouTube / Google authentication
+                if not (domain.endswith("youtube.com") or domain.endswith(".google.com")):
+                    continue
+
                 include_subdomains: str = "TRUE" if domain.startswith(".") else "FALSE"
                 path: str = cookie["path"]
                 secure: str = "TRUE" if cookie["secure"] else "FALSE"
-                # Default to one day later if no expiry is present
-                expires: int = int(cookie.get("expires", time.time() + 86400))
+                # Netscape format requires a valid positive timestamp for expires.
+                # Playwright may return -1 for session cookies; yt-dlp skips these.
+                # Clamp to a future date (1 year) to keep the cookie valid.
+                raw_expires = cookie.get("expires", -1)
+                if raw_expires is None or raw_expires == -1:
+                    expires = int(time.time() + 86400 * 365)
+                else:
+                    expires = int(raw_expires)
                 name: str = cookie["name"]
                 value: str = cookie["value"]
+                httponly: str = "TRUE" if cookie.get("httpOnly", False) else "FALSE"
 
-                # Netscape format: 7 tab-separated columns
+                # Netscape format: 7 or 8 tab-separated columns
+                # domain, flag, path, secure, expires, name, value, [httponly]
                 f.write(
-                    f"{domain}\t{include_subdomains}\t{path}\t{secure}\t{expires}\t{name}\t{value}\n"
+                    f"{domain}\t{include_subdomains}\t{path}\t{secure}\t{expires}\t{name}\t{value}\t{httponly}\n"
                 )
 
         print(f"[+] Cookies successfully converted and saved to: {output_absolute_path}")

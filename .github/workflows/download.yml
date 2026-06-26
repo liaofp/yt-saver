@@ -42,7 +42,14 @@ jobs:
 
       - name: 3. Execute decryption download
         run: |
-          echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
+          COOKIE_CONTENT="${{ secrets.YOUTUBE_COOKIES }}"
+          if [ -z "$COOKIE_CONTENT" ]; then
+            echo "❌ Error: YOUTUBE_COOKIES secret is empty or not set."
+            echo "Please run 'python3 utils.py' locally to generate cookies.txt, then sync it to GitHub Secrets:"
+            echo "  gh secret set YOUTUBE_COOKIES < cookies.txt"
+            exit 1
+          fi
+          echo "$COOKIE_CONTENT" > cookies.txt
 
           # Strictly align with successful attachment parameters
           COMMON_ARGS="--cookies cookies.txt --remote-components ejs:github --js-runtimes node --no-check-certificates --force-ipv4"

@@ -173,9 +173,12 @@ def trigger_github_action(args: argparse.Namespace) -> None:
     Trigger the remote workflow via GitHub CLI.
     """
     if os.path.exists(COOKIE_FILE):
-        if args.verbose:
-            print(f"[*] Syncing {COOKIE_FILE} to GitHub Secrets...")
-        run_command(f"gh secret set YOUTUBE_COOKIES < {COOKIE_FILE}")
+        if os.path.getsize(COOKIE_FILE) == 0:
+            print(f"[!] Warning: {COOKIE_FILE} exists but is empty. Skipping sync to GitHub Secrets.")
+        else:
+            if args.verbose:
+                print(f"[*] Syncing {COOKIE_FILE} to GitHub Secrets...")
+            run_command(f"gh secret set YOUTUBE_COOKIES < {COOKIE_FILE}")
 
     cmd: str = (
         f"gh workflow run {WORKFLOW_FILE} "
