@@ -202,10 +202,10 @@ def save_cookies(
                 value: str = cookie["value"]
                 httponly: str = "TRUE" if cookie.get("httpOnly", False) else "FALSE"
 
-                # Netscape format: 7 or 8 tab-separated columns
-                # domain, flag, path, secure, expires, name, value, [httponly]
+                # Netscape format: 7 tab-separated columns
+                # domain, flag, path, secure, expires, name, value
                 f.write(
-                    f"{domain}\t{include_subdomains}\t{path}\t{secure}\t{expires}\t{name}\t{value}\t{httponly}\n"
+                    f"{domain}\t{include_subdomains}\t{path}\t{secure}\t{expires}\t{name}\t{value}\n"
                 )
 
         print(f"[+] Cookies successfully converted and saved to: {output_absolute_path}")
