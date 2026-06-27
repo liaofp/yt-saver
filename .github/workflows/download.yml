@@ -46,12 +46,31 @@ jobs:
           # Install bgutil-ytdlp-pot-provider plugin for automatic per-video PO Token generation
           # This is the yt-dlp-recommended way to handle PO Tokens since YouTube binds them to video ID
           sudo python3 -m pip install -U bgutil-ytdlp-pot-provider
-          # Clone the provider server code (required for script-mode PO Token generation)
+          # Clone and build the provider server code (required for script-mode PO Token generation)
           # The plugin looks for it at ~/bgutil-ytdlp-pot-provider by default
           git clone --single-branch --branch 1.3.1 https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git ~/bgutil-ytdlp-pot-provider
           cd ~/bgutil-ytdlp-pot-provider/server
           npm ci
           npx tsc
+
+      - name: 2b. Start bgutil PO Token provider server
+        run: |
+          # Start the HTTP server in the background so yt-dlp can reach it at 127.0.0.1:4416
+          nohup node ~/bgutil-ytdlp-pot-provider/server/build/main.js > /tmp/bgutil-server.log 2>&1 &
+          # Wait for server to be ready
+          for i in {1..30}; do
+            if curl -s http://127.0.0.1:4416/ping > /dev/null 2>&1; then
+              echo "[*] bgutil PO Token provider server is ready on port 4416"
+              break
+            fi
+            echo "[*] Waiting for bgutil server to start... ($i/30)"
+            sleep 1
+          done
+          # Print server log for debugging if it failed to start
+          if ! curl -s http://127.0.0.1:4416/ping > /dev/null 2>&1; then
+            echo "[!] Warning: bgutil server may not be fully ready. Log:"
+            cat /tmp/bgutil-server.log || true
+          fi
 
       - name: 3. Execute decryption download
         run: |
