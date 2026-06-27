@@ -52,7 +52,33 @@ uv pip install pyyaml requests playwright
 
 > If using `pip`, replace `uv pip install` with `pip install pyyaml requests playwright`.
 
-### 4. Configure OneDrive (Recommended Default Storage)
+### 4. Configure YouTube Authentication (Cookie + PO Token)
+
+YouTube has significantly tightened bot detection. **For videos longer than ~30 minutes, you must provide both valid cookies and a PO Token.**
+
+Run the built-in helper to automatically extract them:
+
+```bash
+python3 utils.py
+```
+
+This will:
+1. Open a real browser and ask you to log in to YouTube.
+2. Export `cookies.txt` (Netscape format).
+3. Attempt to extract **PO Token** (`po_token.txt`) and **Visitor Data** (`visitor_data.txt`).
+
+After the browser closes, the local script will automatically sync all three files to your GitHub Secrets:
+- `YOUTUBE_COOKIES`
+- `YOUTUBE_PO_TOKEN`
+- `YOUTUBE_VISITOR_DATA`
+
+> **If automatic PO Token extraction fails**, you can manually obtain it by following the [yt-dlp PO Token Guide](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#po-token-guide), save it to `po_token.txt`, and then run:
+> ```bash
+> gh secret set YOUTUBE_PO_TOKEN < po_token.txt
+> gh secret set YOUTUBE_VISITOR_DATA < visitor_data.txt
+> ```
+
+### 5. Configure OneDrive (Recommended Default Storage)
 
 OneDrive is the **recommended default storage** for this project. Complete the following steps once and reuse indefinitely.
 
@@ -106,6 +132,27 @@ gh secret set ONEDRIVE_TOKEN < ~/.config/rclone/rclone.conf
 > Windows users can manually copy the contents of `rclone.conf`, then run `gh secret set ONEDRIVE_TOKEN`, paste, and press `Ctrl+D` (or `Ctrl+Z` + Enter) to finish input.
 
 After these three steps, OneDrive is ready to use as the default storage.
+
+---
+
+## Troubleshooting
+
+### "Sign in to confirm you're not a bot" on long videos
+
+If downloads succeed for short videos but fail for videos longer than ~30 minutes with a bot-check error, your **PO Token** is missing or expired.
+
+**Fix:**
+1. Re-run `python3 utils.py` to log in again and refresh the token files.
+2. The script will auto-sync `po_token.txt` and `visitor_data.txt` to GitHub Secrets.
+3. If automatic extraction still fails, follow the [manual PO Token guide](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#po-token-guide) and set the secret manually:
+   ```bash
+   gh secret set YOUTUBE_PO_TOKEN < po_token.txt
+   gh secret set YOUTUBE_VISITOR_DATA < visitor_data.txt
+   ```
+
+### "The provided YouTube account cookies are no longer valid"
+
+Your cookies have been rotated. Re-run `python3 utils.py` to generate a fresh `cookies.txt` and sync it to GitHub Secrets.
 
 ---
 

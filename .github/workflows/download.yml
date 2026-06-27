@@ -66,6 +66,14 @@ jobs:
             --no-check-certificates
             --retries 10
             --fragment-retries 10
+            --extractor-retries 3
+            --file-access-retries 3
+            --retry-sleep fragment:exp=2:10
+            --force-ipv4
+            --geo-bypass
+            --throttled-rate 100K
+            --buffer-size 16K
+            --http-chunk-size 10M
           )
 
           # Check if PO Token is provided via secret
@@ -76,6 +84,13 @@ jobs:
           else
             echo "[!] No PO Token found. Using default clients with android_sdkless excluded..."
             BASE_ARGS+=(--extractor-args "youtube:player_client=default,-android_sdkless")
+          fi
+
+          # Also check for a visitor data token (helps avoid bot detection on long videos)
+          VISITOR_DATA="${{ secrets.YOUTUBE_VISITOR_DATA }}"
+          if [ -n "$VISITOR_DATA" ]; then
+            echo "[*] Using Visitor Data token..."
+            BASE_ARGS+=(--extractor-args "youtube:visitor_data=$VISITOR_DATA")
           fi
 
           # Generate timestamp first so the same value is used before and after download

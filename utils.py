@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import sys
 import time
+import json
+import re
 from typing import Tuple, Optional
 from playwright.sync_api import (
     Playwright,
@@ -278,6 +280,126 @@ def is_login(context: BrowserContext) -> bool:
     return required_core_cookies.issubset(cookie_names)
 
 
+def extract_youtube_tokens(page: Page) -> dict[str, Optional[str]]:
+    """
+    Extract YouTube PO Token and Visitor Data from the current page.
+
+    These tokens are required by YouTube's bot-detection system for long videos.
+    We retrieve them from the page's internal JavaScript context where YouTube
+    stores them in the ytInitialPlayerResponse or window.ytcfg.
+    """
+    tokens: dict[str, Optional[str]] = {"po_token": None, "visitor_data": None}
+
+    try:
+        # Attempt 1: extract from ytInitialPlayerResponse on a watch page
+        # Navigate to a known public video to force player initialization
+        print("[*] Navigating to a public video to trigger player token generation...")
+        page.goto("https://www.youtube.com/watch?v=jNQXAC9IVRw")
+        page.wait_for_load_state("networkidle")
+
+        # Extract from window.ytInitialPlayerResponse
+        player_response = page.evaluate("""
+            () => {
+                try {
+                    return window.ytInitialPlayerResponse || null;
+                } catch (e) {
+                    return null;
+                }
+            }
+        """)
+
+        if player_response and isinstance(player_response, dict):
+            # PO Token is usually in streamingData.poToken or serviceIntegrityDimensions.poToken
+            streaming_data = player_response.get("streamingData", {})
+            tokens["po_token"] = streaming_data.get("poToken")
+
+            # Visitor data may be in responseContext.visitorData
+            response_context = player_response.get("responseContext", {})
+            tokens["visitor_data"] = response_context.get("visitorData")
+
+        # Attempt 2: if not found, try window.ytcfg
+        if not tokens["po_token"] or not tokens["visitor_data"]:
+            ytcfg = page.evaluate("""
+                () => {
+                    try {
+                        return window.ytcfg.data_ || window.ytcfg.get("WEB_PLAYER_CONTEXT_CONFIGS") || null;
+                    } catch (e) {
+                        return null;
+                    }
+                }
+            """)
+            if ytcfg and isinstance(ytcfg, dict):
+                # Try various known paths
+                if not tokens["visitor_data"]:
+                    tokens["visitor_data"] = ytcfg.get("VISITOR_DATA")
+                if not tokens["po_token"]:
+                    tokens["po_token"] = ytcfg.get("PO_TOKEN")
+
+        # Attempt 3: extract from page source via regex as fallback
+        page_content = page.content()
+        if not tokens["visitor_data"]:
+            vd_match = re.search(r'"visitorData"\s*:\s*"([^"]+)"', page_content)
+            if vd_match:
+                tokens["visitor_data"] = vd_match.group(1)
+        if not tokens["po_token"]:
+            po_match = re.search(r'"poToken"\s*:\s*"([^"]+)"', page_content)
+            if po_match:
+                tokens["po_token"] = po_match.group(1)
+
+        # Attempt 4: check for tokens in localStorage / sessionStorage
+        if not tokens["po_token"]:
+            ls_po = page.evaluate("() => { try { return localStorage.getItem('po_token'); } catch(e) { return null; } }")
+            if ls_po:
+                tokens["po_token"] = str(ls_po)
+        if not tokens["visitor_data"]:
+            ls_vd = page.evaluate("() => { try { return localStorage.getItem('visitor_data'); } catch(e) { return null; } }")
+            if ls_vd:
+                tokens["visitor_data"] = str(ls_vd)
+
+    except Exception as e:
+        print(f"[-] Exception during token extraction: {e}")
+
+    return tokens
+
+
+def save_tokens_to_files(
+    tokens: dict[str, Optional[str]],
+    po_file: str = "po_token.txt",
+    visitor_file: str = "visitor_data.txt",
+) -> None:
+    """
+    Save extracted tokens to local text files for manual inspection and GitHub Secret sync.
+    """
+    current_dir: str = (
+        os.path.abspath(os.path.dirname(__file__))
+        if "__file__" in locals()
+        else os.getcwd()
+    )
+
+    po_path = os.path.join(current_dir, po_file)
+    visitor_path = os.path.join(current_dir, visitor_file)
+
+    if tokens.get("po_token"):
+        try:
+            with open(po_path, "w", encoding="utf-8") as f:
+                f.write(tokens["po_token"])
+            print(f"[+] PO Token saved to: {po_path}")
+        except Exception as e:
+            print(f"[-] Failed to save PO Token: {e}")
+    else:
+        print("[!] PO Token not found; skipping save.")
+
+    if tokens.get("visitor_data"):
+        try:
+            with open(visitor_path, "w", encoding="utf-8") as f:
+                f.write(tokens["visitor_data"])
+            print(f"[+] Visitor Data saved to: {visitor_path}")
+        except Exception as e:
+            print(f"[-] Failed to save Visitor Data: {e}")
+    else:
+        print("[!] Visitor Data not found; skipping save.")
+
+
 # Global Playwright instance to keep the browser process alive
 _playwright_instance: Optional[Playwright] = None
 
@@ -351,6 +473,27 @@ def get_cookies() -> Tuple[Optional[BrowserContext], Optional[Page]]:
     print(
         "[+] State transition: cookie file written instantly, perfectly compatible with yt-dlp."
     )
+
+    # ==================== Event 3: Extract PO Token & Visitor Data ====================
+    print(
+        "[*] [Event listener active] Extracting YouTube PO Token and Visitor Data for bot bypass..."
+    )
+    tokens = extract_youtube_tokens(page)
+    save_tokens_to_files(tokens)
+
+    if tokens.get("po_token"):
+        print(f"[+] PO Token extracted successfully (length={len(tokens['po_token'])}).")
+    else:
+        print(
+            "[!] PO Token extraction failed. You may need to manually obtain it via "
+            "https://github.com/yt-dlp/yt-dlp/wiki/Extractors#po-token-guide"
+        )
+
+    if tokens.get("visitor_data"):
+        print(f"[+] Visitor Data extracted successfully (length={len(tokens['visitor_data'])}).")
+    else:
+        print("[!] Visitor Data not found; long videos may still fail.")
+
     return context, page
 
 
@@ -433,6 +576,26 @@ def main() -> None:
         print(
             "[+] State transition: cookie file written instantly, perfectly compatible with yt-dlp."
         )
+
+        # ==================== Event 3: Extract PO Token & Visitor Data ====================
+        print(
+            "[*] Extracting YouTube PO Token and Visitor Data for bot bypass..."
+        )
+        tokens = extract_youtube_tokens(page)
+        save_tokens_to_files(tokens)
+
+        if tokens.get("po_token"):
+            print(f"[+] PO Token extracted successfully (length={len(tokens['po_token'])}).")
+        else:
+            print(
+                "[!] PO Token extraction failed. You may need to manually obtain it via "
+                "https://github.com/yt-dlp/yt-dlp/wiki/Extractors#po-token-guide"
+            )
+
+        if tokens.get("visitor_data"):
+            print(f"[+] Visitor Data extracted successfully (length={len(tokens['visitor_data'])}).")
+        else:
+            print("[!] Visitor Data not found; long videos may still fail.")
 
         # ==================== Business Sleep ====================
         print("\n" + "=" * 40)

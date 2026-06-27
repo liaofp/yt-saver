@@ -13,6 +13,8 @@ import configparser
 # --- Static Configuration ---
 WORKFLOW_FILE: str = ".github/workflows/download.yml"
 COOKIE_FILE: str = "cookies.txt"
+PO_TOKEN_FILE: str = "po_token.txt"
+VISITOR_DATA_FILE: str = "visitor_data.txt"
 
 
 def run_command(command: str, verbose: bool = False) -> Tuple[str, int]:
@@ -179,6 +181,24 @@ def trigger_github_action(args: argparse.Namespace) -> None:
             if args.verbose:
                 print(f"[*] Syncing {COOKIE_FILE} to GitHub Secrets...")
             run_command(f"gh secret set YOUTUBE_COOKIES < {COOKIE_FILE}")
+
+    # Sync PO Token if available
+    if os.path.exists(PO_TOKEN_FILE) and os.path.getsize(PO_TOKEN_FILE) > 0:
+        if args.verbose:
+            print(f"[*] Syncing {PO_TOKEN_FILE} to GitHub Secrets...")
+        run_command(f"gh secret set YOUTUBE_PO_TOKEN < {PO_TOKEN_FILE}")
+    else:
+        if args.verbose:
+            print(f"[!] {PO_TOKEN_FILE} not found or empty; PO Token will not be available in Actions.")
+
+    # Sync Visitor Data if available
+    if os.path.exists(VISITOR_DATA_FILE) and os.path.getsize(VISITOR_DATA_FILE) > 0:
+        if args.verbose:
+            print(f"[*] Syncing {VISITOR_DATA_FILE} to GitHub Secrets...")
+        run_command(f"gh secret set YOUTUBE_VISITOR_DATA < {VISITOR_DATA_FILE}")
+    else:
+        if args.verbose:
+            print(f"[!] {VISITOR_DATA_FILE} not found or empty; Visitor Data will not be available in Actions.")
 
     cmd: str = (
         f"gh workflow run {WORKFLOW_FILE} "
