@@ -35,14 +35,23 @@ jobs:
       - name: 1. Checkout code & strengthen environment
         uses: actions/checkout@v4
 
-      - name: 2. Install dependencies (force-update yt-dlp)
+      - name: 2. Install dependencies (force-update yt-dlp + PO Token provider)
         run: |
           sudo python3 -m pip install -U yt-dlp
-          sudo apt-get update && sudo apt-get install -y ffmpeg nodejs jq
+          sudo apt-get update && sudo apt-get install -y ffmpeg nodejs jq git
           # Install Deno as JS runtime (required for YouTube signature decryption in 2026)
           curl -fsSL https://deno.land/install.sh | sudo DENO_INSTALL=/usr/local sh
           # Ensure yt-dlp is updated to the latest stable version
           sudo yt-dlp --update || true
+          # Install bgutil-ytdlp-pot-provider plugin for automatic per-video PO Token generation
+          # This is the yt-dlp-recommended way to handle PO Tokens since YouTube binds them to video ID
+          sudo python3 -m pip install -U bgutil-ytdlp-pot-provider
+          # Clone the provider server code (required for script-mode PO Token generation)
+          # The plugin looks for it at ~/bgutil-ytdlp-pot-provider by default
+          git clone --single-branch --branch 1.3.1 https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git ~/bgutil-ytdlp-pot-provider
+          cd ~/bgutil-ytdlp-pot-provider/server
+          npm ci
+          npx tsc
 
       - name: 3. Execute decryption download
         run: |
@@ -55,8 +64,9 @@ jobs:
           fi
           echo "$COOKIE_CONTENT" > cookies.txt
 
-          # yt-dlp args: use default client behavior with JS challenge solver enabled
-          # YouTube now requires PO Token for web client; exclude broken android_sdkless
+          # yt-dlp args: use mweb client with bgutil PO Token provider plugin
+          # Wiki recommends: mweb client + PO Token Provider plugin for GVS requests
+          # The plugin automatically generates a per-video PO Token, no manual token needed
           BASE_ARGS=(
             --cookies cookies.txt
             --user-agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -74,24 +84,8 @@ jobs:
             --throttled-rate 100K
             --buffer-size 16K
             --http-chunk-size 10M
+            --extractor-args "youtube:player_client=mweb"
           )
-
-          # Check if PO Token is provided via secret
-          PO_TOKEN="${{ secrets.YOUTUBE_PO_TOKEN }}"
-          if [ -n "$PO_TOKEN" ]; then
-            echo "[*] Using PO Token for YouTube authentication..."
-            BASE_ARGS+=(--extractor-args "youtube:player_client=web;po_token=web.gvs+$PO_TOKEN")
-          else
-            echo "[!] No PO Token found. Using default clients with android_sdkless excluded..."
-            BASE_ARGS+=(--extractor-args "youtube:player_client=default,-android_sdkless")
-          fi
-
-          # Also check for a visitor data token (helps avoid bot detection on long videos)
-          VISITOR_DATA="${{ secrets.YOUTUBE_VISITOR_DATA }}"
-          if [ -n "$VISITOR_DATA" ]; then
-            echo "[*] Using Visitor Data token..."
-            BASE_ARGS+=(--extractor-args "youtube:visitor_data=$VISITOR_DATA")
-          fi
 
           # Generate timestamp first so the same value is used before and after download
           TIMESTAMP_MS=$(date +%s%3N)

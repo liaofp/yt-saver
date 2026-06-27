@@ -1,6 +1,4 @@
 cookies.txt
-po_token.txt
-visitor_data.txt
 __pycache__/
 .venv/
 *.log

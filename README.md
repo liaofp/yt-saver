@@ -52,11 +52,11 @@ uv pip install pyyaml requests playwright
 
 > If using `pip`, replace `uv pip install` with `pip install pyyaml requests playwright`.
 
-### 4. Configure YouTube Authentication (Cookie + PO Token)
+### 4. Configure YouTube Authentication (Cookie)
 
-YouTube has significantly tightened bot detection. **For videos longer than ~30 minutes, you must provide both valid cookies and a PO Token.**
+YouTube has significantly tightened bot detection. **For videos longer than ~30 minutes, you must provide valid cookies.** The GitHub Actions runner will automatically use the `bgutil-ytdlp-pot-provider` plugin to generate per-video PO Tokens — no manual PO Token extraction needed.
 
-Run the built-in helper to automatically extract them:
+Run the built-in helper to export cookies:
 
 ```bash
 python3 utils.py
@@ -65,18 +65,10 @@ python3 utils.py
 This will:
 1. Open a real browser and ask you to log in to YouTube.
 2. Export `cookies.txt` (Netscape format).
-3. Attempt to extract **PO Token** (`po_token.txt`) and **Visitor Data** (`visitor_data.txt`).
 
-After the browser closes, the local script will automatically sync all three files to your GitHub Secrets:
-- `YOUTUBE_COOKIES`
-- `YOUTUBE_PO_TOKEN`
-- `YOUTUBE_VISITOR_DATA`
+After the browser closes, run any download command — `youtube.py` will automatically sync `cookies.txt` to your GitHub Secret `YOUTUBE_COOKIES`.
 
-> **If automatic PO Token extraction fails**, you can manually obtain it by following the [yt-dlp PO Token Guide](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#po-token-guide), save it to `po_token.txt`, and then run:
-> ```bash
-> gh secret set YOUTUBE_PO_TOKEN < po_token.txt
-> gh secret set YOUTUBE_VISITOR_DATA < visitor_data.txt
-> ```
+> **Note:** We no longer manually extract PO Tokens. YouTube now binds PO Tokens to each video ID, making a global token useless. Instead, the GitHub Actions workflow installs the `bgutil-ytdlp-pot-provider` plugin, which automatically generates the correct PO Token for every video.
 
 ### 5. Configure OneDrive (Recommended Default Storage)
 
@@ -139,16 +131,13 @@ After these three steps, OneDrive is ready to use as the default storage.
 
 ### "Sign in to confirm you're not a bot" on long videos
 
-If downloads succeed for short videos but fail for videos longer than ~30 minutes with a bot-check error, your **PO Token** is missing or expired.
+If downloads succeed for short videos but fail for videos longer than ~30 minutes with a bot-check error, your **cookies** may be invalid or the PO Token provider plugin may have failed to generate a token.
 
 **Fix:**
-1. Re-run `python3 utils.py` to log in again and refresh the token files.
-2. The script will auto-sync `po_token.txt` and `visitor_data.txt` to GitHub Secrets.
-3. If automatic extraction still fails, follow the [manual PO Token guide](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#po-token-guide) and set the secret manually:
-   ```bash
-   gh secret set YOUTUBE_PO_TOKEN < po_token.txt
-   gh secret set YOUTUBE_VISITOR_DATA < visitor_data.txt
-   ```
+1. Re-run `python3 utils.py` to log in again and refresh `cookies.txt`.
+2. The script will auto-sync `cookies.txt` to GitHub Secrets.
+3. The GitHub Actions workflow now uses the `bgutil-ytdlp-pot-provider` plugin to automatically generate per-video PO Tokens — no manual token extraction needed.
+4. If the issue persists, check the Actions logs for plugin errors and ensure `yt-dlp` is up to date.
 
 ### "The provided YouTube account cookies are no longer valid"
 
