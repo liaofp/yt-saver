@@ -7,20 +7,30 @@ from .aliclient import AlipanClient
 from .base import StorageProvider
 
 
+def _find_success_block(logs: str) -> Optional[str]:
+    """Find the first RESULT block that contains DRIVE_ID (success upload block)."""
+    matches = re.findall(r"---RESULT_START---(.*?)---RESULT_END---", logs, re.S)
+    for raw in matches:
+        # Strip log timestamp prefixes if present
+        clean = re.sub(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s*", "", raw, flags=re.M)
+        if "DRIVE_ID" in clean:
+            return clean
+    return None
+
+
 class AliyunProvider(StorageProvider):
     def handle_result(self, logs: str, token: Optional[str] = None) -> None:
-        # Match the standardized result printed by the cloud script
-        match = re.search(r"---RESULT_START---(.*?)---RESULT_END---", logs, re.S)
-        if not match:
+        # Match the standardized result printed by the cloud script (find success block)
+        result_text = _find_success_block(logs)
+        if result_text is None:
             print("❌ Upload result marker not found in logs.")
             print("   This usually means the workflow failed before uploading.")
             print("   Please check the error message printed above (if any).")
             return
 
-        data: str = match.group(1)
-        d_id_match = re.search(r"DRIVE_ID: (\S+)", data)
-        f_id_match = re.search(r"FILE_ID: (\S+)", data)
-        name_match = re.search(r"FILE_NAME: (\S+)", data)
+        d_id_match = re.search(r"DRIVE_ID: (\S+)", result_text)
+        f_id_match = re.search(r"FILE_ID: (\S+)", result_text)
+        name_match = re.search(r"FILE_NAME: (\S+)", result_text)
 
         if not d_id_match or not f_id_match or not name_match:
             print("❌ Failed to parse Aliyun result block.")

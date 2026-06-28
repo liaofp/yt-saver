@@ -5,7 +5,7 @@ import os
 import json
 import time
 import re
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List, Dict
 from providers.aliyun import AliyunProvider
 from providers.gofile import GofileProvider
 from providers.onedrive import OnedriveProvider
@@ -33,18 +33,25 @@ def run_command(command: str, verbose: bool = False) -> Tuple[str, int]:
     return stdout, result.returncode
 
 
-def _parse_result_block(logs: str) -> Optional[dict]:
-    """Extract the standardized ---RESULT_START---...---RESULT_END--- block."""
-    match = re.search(r"---RESULT_START---(.*?)---RESULT_END---", logs, re.S)
-    if not match:
-        return None
-    data = match.group(1)
-    result = {}
-    for line in data.strip().splitlines():
-        if ":" in line:
-            key, value = line.split(":", 1)
-            result[key.strip()] = value.strip()
-    return result
+def _strip_log_prefix(line: str) -> str:
+    """Strip GitHub Actions log timestamp prefix if present."""
+    # Matches: 2024-01-01T00:00:00.0000000Z 
+    return re.sub(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s*", "", line)
+
+
+def _parse_all_result_blocks(logs: str) -> List[Dict[str, str]]:
+    """Extract all ---RESULT_START---...---RESULT_END--- blocks from logs."""
+    blocks: List[Dict[str, str]] = []
+    matches = re.findall(r"---RESULT_START---(.*?)---RESULT_END---", logs, re.S)
+    for raw in matches:
+        result: Dict[str, str] = {}
+        for line in raw.strip().splitlines():
+            clean_line = _strip_log_prefix(line)
+            if ":" in clean_line:
+                key, value = clean_line.split(":", 1)
+                result[key.strip()] = value.strip()
+        blocks.append(result)
+    return blocks
 
 
 def monitor_workflow(
@@ -81,11 +88,32 @@ def monitor_workflow(
     print("\n[*] Workflow finished, retrieving file...")
     log_stdout, _ = run_command(f"gh run view {run_id} --log", verbose)
 
-    # 3. Parse result block first to detect failure
-    result_block = _parse_result_block(log_stdout)
-    if result_block and result_block.get("STATUS") == "FAILED":
-        reason = result_block.get("REASON", "Unknown failure reason.")
-        error_log = result_block.get("ERROR_LOG", "")
+    # 3. Parse all result blocks from the full log
+    result_blocks = _parse_all_result_blocks(log_stdout)
+    if verbose:
+        print(f"[DEBUG] Found {len(result_blocks)} RESULT block(s) in logs.")
+        for i, block in enumerate(result_blocks):
+            print(f"[DEBUG] Block {i}: {block}")
+
+    # Determine if any block indicates a successful upload (has upload-specific keys)
+    success_block = None
+    failed_block = None
+    for block in result_blocks:
+        # A success block contains upload result keys (ITEM_ID, FILE_NAME, DRIVE_ID, FILE_ID, DL_URL)
+        if any(k in block for k in ("ITEM_ID", "DRIVE_ID", "DL_URL")):
+            success_block = block
+        # A failed block has STATUS: FAILED
+        if block.get("STATUS") == "FAILED":
+            failed_block = block
+
+    # If we found a success block, proceed with retrieval regardless of any failed blocks
+    if success_block is not None:
+        if verbose:
+            print("[DEBUG] Success block detected, proceeding with local retrieval.")
+    elif failed_block is not None:
+        # No success block but we have a failed block -> show error and cleanup
+        reason = failed_block.get("REASON", "Unknown failure reason.")
+        error_log = failed_block.get("ERROR_LOG", "")
         print("\n❌ GitHub Actions workflow failed to download from YouTube.")
         print(f"   Reason: {reason}")
         if error_log:
@@ -96,6 +124,10 @@ def monitor_workflow(
         run_command(f"gh run delete {run_id}")
         print("✅ Run record cleared from GitHub project page.")
         return
+    else:
+        # No result blocks at all
+        print("\n[!] Warning: No result block found in workflow logs.")
+        print("    This may indicate an unexpected workflow failure or log truncation.")
 
     # 4. Perform local retrieval and cloud cleanup
     config = configparser.ConfigParser()

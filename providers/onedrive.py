@@ -7,20 +7,30 @@ from typing import Optional
 from .base import StorageProvider
 
 
+def _find_success_block(logs: str) -> Optional[str]:
+    """Find the first RESULT block that contains ITEM_ID (success upload block)."""
+    matches = re.findall(r"---RESULT_START---(.*?)---RESULT_END---", logs, re.S)
+    for raw in matches:
+        # Strip log timestamp prefixes if present
+        clean = re.sub(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s*", "", raw, flags=re.M)
+        if "ITEM_ID" in clean:
+            return clean
+    return None
+
+
 class OnedriveProvider(StorageProvider):
     def handle_result(self, logs: str, token: Optional[str] = None) -> None:
         """
         Definitive version: call the locally installed rclone directly.
         """
-        # 1. Extract cloud upload info from logs
-        match = re.search(r"---RESULT_START---(.*?)---RESULT_END---", logs, re.S)
-        if not match:
+        # 1. Extract cloud upload info from logs (find success block, not just first block)
+        result_text = _find_success_block(logs)
+        if result_text is None:
             print("❌ Upload result marker not found in logs.")
             print("   This usually means the workflow failed before uploading.")
             print("   Please check the error message printed above (if any).")
             return
 
-        result_text: str = match.group(1)
         item_id_match = re.search(r"ITEM_ID:\s*(.*)", result_text)
         file_name_match = re.search(r"FILE_NAME:\s*(.*)", result_text)
 
