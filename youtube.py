@@ -4,6 +4,7 @@ import sys
 import os
 import json
 import time
+import re
 from typing import Optional, Tuple
 from providers.aliyun import AliyunProvider
 from providers.gofile import GofileProvider
@@ -30,6 +31,20 @@ def run_command(command: str, verbose: bool = False) -> Tuple[str, int]:
         print(f"[ERROR] {stderr}", file=sys.stderr)
 
     return stdout, result.returncode
+
+
+def _parse_result_block(logs: str) -> Optional[dict]:
+    """Extract the standardized ---RESULT_START---...---RESULT_END--- block."""
+    match = re.search(r"---RESULT_START---(.*?)---RESULT_END---", logs, re.S)
+    if not match:
+        return None
+    data = match.group(1)
+    result = {}
+    for line in data.strip().splitlines():
+        if ":" in line:
+            key, value = line.split(":", 1)
+            result[key.strip()] = value.strip()
+    return result
 
 
 def monitor_workflow(
@@ -66,7 +81,23 @@ def monitor_workflow(
     print("\n[*] Workflow finished, retrieving file...")
     log_stdout, _ = run_command(f"gh run view {run_id} --log", verbose)
 
-    # 3. Perform local retrieval and cloud cleanup
+    # 3. Parse result block first to detect failure
+    result_block = _parse_result_block(log_stdout)
+    if result_block and result_block.get("STATUS") == "FAILED":
+        reason = result_block.get("REASON", "Unknown failure reason.")
+        error_log = result_block.get("ERROR_LOG", "")
+        print("\n❌ GitHub Actions workflow failed to download from YouTube.")
+        print(f"   Reason: {reason}")
+        if error_log:
+            print("\n--- yt-dlp Error Log (last lines) ---")
+            print(error_log)
+            print("--- End of error log ---")
+        print(f"\n[*] Cleaning up GitHub Actions run page (ID: {run_id})...")
+        run_command(f"gh run delete {run_id}")
+        print("✅ Run record cleared from GitHub project page.")
+        return
+
+    # 4. Perform local retrieval and cloud cleanup
     config = configparser.ConfigParser()
     config.add_section("Storage")  # default to ~/Downloads
 

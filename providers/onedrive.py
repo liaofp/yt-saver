@@ -15,10 +15,9 @@ class OnedriveProvider(StorageProvider):
         # 1. Extract cloud upload info from logs
         match = re.search(r"---RESULT_START---(.*?)---RESULT_END---", logs, re.S)
         if not match:
-            print(
-                "❌ Upload result marker not found in logs. "
-                "Please check GitHub Actions logs."
-            )
+            print("❌ Upload result marker not found in logs.")
+            print("   This usually means the workflow failed before uploading.")
+            print("   Please check the error message printed above (if any).")
             return
 
         result_text: str = match.group(1)

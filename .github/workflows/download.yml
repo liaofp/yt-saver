@@ -79,6 +79,10 @@ jobs:
             echo "❌ Error: YOUTUBE_COOKIES secret is empty or not set."
             echo "Please run 'python3 utils.py' locally to generate cookies.txt, then sync it to GitHub Secrets:"
             echo "  gh secret set YOUTUBE_COOKIES < cookies.txt"
+            echo "---RESULT_START---"
+            echo "STATUS: FAILED"
+            echo "REASON: YOUTUBE_COOKIES secret is empty or not set. Please run 'python3 utils.py' locally to generate cookies.txt, then sync it to GitHub Secrets: gh secret set YOUTUBE_COOKIES < cookies.txt"
+            echo "---RESULT_END---"
             exit 1
           fi
           echo "$COOKIE_CONTENT" > cookies.txt
@@ -121,17 +125,32 @@ jobs:
             FILE_PREFIX="${TIMESTAMP_MS}"
           fi
 
+          YTDLP_ERR_LOG="/tmp/yt-dlp-error.log"
           if [ "${{ github.event.inputs.download_type }}" = "audio" ]; then
-            yt-dlp "${BASE_ARGS[@]}" -f "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio" --extract-audio --audio-format opus "${{ github.event.inputs.video_url }}" -o "$OUTPUT_TEMPLATE"
+            yt-dlp "${BASE_ARGS[@]}" -f "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio" --extract-audio --audio-format opus "${{ github.event.inputs.video_url }}" -o "$OUTPUT_TEMPLATE" 2>"$YTDLP_ERR_LOG"
+            YTDLP_EXIT_CODE=$?
           else
-            yt-dlp "${BASE_ARGS[@]}" -f "best[height<=720][ext=mp4]/best" "${{ github.event.inputs.video_url }}" -o "$OUTPUT_TEMPLATE"
+            yt-dlp "${BASE_ARGS[@]}" -f "best[height<=720][ext=mp4]/best" "${{ github.event.inputs.video_url }}" -o "$OUTPUT_TEMPLATE" 2>"$YTDLP_ERR_LOG"
+            YTDLP_EXIT_CODE=$?
           fi
 
           # Locate the actually downloaded file (match filename prefix)
           FINAL_FILE=$(ls -t ${FILE_PREFIX}.* 2>/dev/null | head -n 1)
 
-          if [ -z "$FINAL_FILE" ]; then
+          if [ -z "$FINAL_FILE" ] || [ $YTDLP_EXIT_CODE -ne 0 ]; then
             echo "❌ Error: yt-dlp download failed, no output file found"
+            # Collect last meaningful error lines from stderr log
+            YTDLP_LAST_ERR=$(tail -n 20 "$YTDLP_ERR_LOG" 2>/dev/null || true)
+            # Fallback: also grep for common yt-dlp error keywords if tail is empty
+            if [ -z "$YTDLP_LAST_ERR" ]; then
+              YTDLP_LAST_ERR="Unknown error (no stderr captured)."
+            fi
+            echo "---RESULT_START---"
+            echo "STATUS: FAILED"
+            echo "REASON: yt-dlp download failed."
+            echo "ERROR_LOG:"
+            echo "$YTDLP_LAST_ERR"
+            echo "---RESULT_END---"
             exit 1
           fi
           echo "FINAL_FILE=$FINAL_FILE" >> $GITHUB_ENV

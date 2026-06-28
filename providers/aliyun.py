@@ -12,6 +12,9 @@ class AliyunProvider(StorageProvider):
         # Match the standardized result printed by the cloud script
         match = re.search(r"---RESULT_START---(.*?)---RESULT_END---", logs, re.S)
         if not match:
+            print("❌ Upload result marker not found in logs.")
+            print("   This usually means the workflow failed before uploading.")
+            print("   Please check the error message printed above (if any).")
             return
 
         data: str = match.group(1)

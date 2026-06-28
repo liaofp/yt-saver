@@ -11,6 +11,8 @@ class GofileProvider(StorageProvider):
         dl_match = re.search(r"DL_URL: (\S+)", logs)
         if not dl_match:
             print("❌ Failed to parse GoFile download URL from logs.")
+            print("   This usually means the workflow failed before uploading.")
+            print("   Please check the error message printed above (if any).")
             return
         dl_url: str = dl_match.group(1)
         print("✅ GoFile: upload successful!")
