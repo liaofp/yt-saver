@@ -13,6 +13,68 @@ from playwright.sync_api import (
 )
 
 
+def auto_login(page: Page, email: str, password: str) -> bool:
+    """
+    使用预设的邮箱和密码自动完成 Google/YouTube 登录。
+    登录成功后返回 True，失败返回 False。
+    """
+    print("[*] Auto-login mode: navigating to Google sign-in page...")
+    try:
+        # 1. 打开 Google 登录页
+        page.goto("https://accounts.google.com/signin/v2/identifier?service=youtube")
+        page.wait_for_load_state("networkidle")
+
+        # 2. 填写邮箱
+        print(f"[*] Filling email: {email}")
+        email_input = page.locator('input[type="email"]')
+        email_input.wait_for(state="visible", timeout=10000)
+        email_input.fill(email)
+        time.sleep(0.5)
+
+        # 3. 点击下一步
+        page.locator("#identifierNext button").click()
+        time.sleep(1.5)
+
+        # 4. 填写密码
+        print("[*] Filling password...")
+        password_input = page.locator('input[type="password"]')
+        password_input.wait_for(state="visible", timeout=10000)
+        password_input.fill(password)
+        time.sleep(0.5)
+
+        # 5. 点击下一步（登录）
+        page.locator("#passwordNext button").click()
+        time.sleep(2)
+
+        # 6. 等待页面跳转或加载完成
+        page.wait_for_load_state("networkidle", timeout=15000)
+
+        # 7. 检查是否仍在登录页（说明登录失败或需要二次验证）
+        current_url = page.url
+        if "accounts.google.com" in current_url:
+            if "challenge" in current_url or "signin" in current_url:
+                print(
+                    "[!] Auto-login paused: additional verification required (2FA/CAPTCHA)."
+                    " Please complete it manually in the browser."
+                )
+                # 等待用户手动完成验证，最长 120 秒
+                try:
+                    page.wait_for_url(lambda url: "accounts.google.com" not in url, timeout=120000)
+                    print("[+] Manual verification completed successfully.")
+                except Exception:
+                    print("[-] Manual verification timeout.")
+                    return False
+            else:
+                print("[-] Auto-login failed: still on login page.")
+                return False
+
+        print("[+] Auto-login completed successfully.")
+        return True
+    except Exception as e:
+        print(f"[-] Auto-login error: {e}")
+        return False
+
+
 def detect_system_browser(
     playwright: Playwright,
 ) -> Tuple[BrowserType, Optional[str], Optional[str]]:
@@ -300,25 +362,39 @@ def get_cookies() -> Tuple[Optional[BrowserContext], Optional[Page]]:
     print("[*] Opening YouTube homepage...")
     page.goto("https://www.youtube.com/")
 
-    print(
-        "[!] [Event listener active] Please click Sign In in the opened browser and complete login..."
-    )
+    # 检查环境变量是否配置了自动登录凭据
+    email = os.environ.get("YOUTUBE_EMAIL")
+    password = os.environ.get("YOUTUBE_PASSWORD")
 
-    # ==================== Event 1: Listen for login-success DOM signal ====================
-    try:
-        avatar_selector: str = "button#avatar-btn"
-        # wait_for_selector is an efficient low-level event listener:
-        # it resumes the moment the element appears, up to 120 s
-        page.wait_for_selector(avatar_selector, timeout=120000)
+    if email and password:
+        print("[!] Auto-login credentials detected in environment variables.")
+        login_success = auto_login(page, email, password)
+        if not login_success:
+            print("[-] Auto-login failed, exiting.")
+            context.close()
+            _playwright_instance.stop()
+            _playwright_instance = None
+            return None, None
+    else:
         print(
-            "[+] [Event 1 triggered]: user avatar detected on page, DOM-level login confirmed!"
+            "[!] [Event listener active] Please click Sign In in the opened browser and complete login..."
         )
-    except Exception:
-        print("[-] Login timeout or success element not detected, exiting.")
-        context.close()
-        _playwright_instance.stop()
-        _playwright_instance = None
-        return None, None
+
+        # ==================== Event 1: Listen for login-success DOM signal ====================
+        try:
+            avatar_selector: str = "button#avatar-btn"
+            # wait_for_selector is an efficient low-level event listener:
+            # it resumes the moment the element appears, up to 120 s
+            page.wait_for_selector(avatar_selector, timeout=120000)
+            print(
+                "[+] [Event 1 triggered]: user avatar detected on page, DOM-level login confirmed!"
+            )
+        except Exception:
+            print("[-] Login timeout or success element not detected, exiting.")
+            context.close()
+            _playwright_instance.stop()
+            _playwright_instance = None
+            return None, None
 
     # ==================== Event 2: Listen for core cookie write to memory ====================
     print(
@@ -379,6 +455,21 @@ def close_browser(context: Optional[BrowserContext] = None) -> None:
 
 
 def main() -> None:
+    # 尝试从 .env 文件加载环境变量（如果存在）
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.exists(env_path):
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+        print(f"[*] Loaded environment variables from: {env_path}")
+
     with sync_playwright() as playwright:
         # 1. Launch a stealthy local browser
         context, page = initialize_browser(playwright, headless=False)
@@ -386,22 +477,34 @@ def main() -> None:
         print("[*] Opening YouTube homepage...")
         page.goto("https://www.youtube.com/")
 
-        print(
-            "[!] [Event listener active] Please click Sign In in the opened browser and complete login..."
-        )
+        # 检查环境变量是否配置了自动登录凭据
+        email = os.environ.get("YOUTUBE_EMAIL")
+        password = os.environ.get("YOUTUBE_PASSWORD")
 
-        # ==================== Event 1: Listen for login-success DOM signal ====================
-        try:
-            avatar_selector: str = "button#avatar-btn"
-            page.wait_for_selector(avatar_selector, timeout=120000)
+        if email and password:
+            print("[!] Auto-login credentials detected in environment variables.")
+            login_success = auto_login(page, email, password)
+            if not login_success:
+                print("[-] Auto-login failed, exiting.")
+                context.close()
+                return
+        else:
             print(
-                "[+] [Event 1 triggered]: user avatar detected on page, "
-                "DOM-level login confirmed!"
+                "[!] [Event listener active] Please click Sign In in the opened browser and complete login..."
             )
-        except Exception:
-            print("[-] Login timeout or success element not detected, exiting.")
-            context.close()
-            return
+
+            # ==================== Event 1: Listen for login-success DOM signal ====================
+            try:
+                avatar_selector: str = "button#avatar-btn"
+                page.wait_for_selector(avatar_selector, timeout=120000)
+                print(
+                    "[+] [Event 1 triggered]: user avatar detected on page, "
+                    "DOM-level login confirmed!"
+                )
+            except Exception:
+                print("[-] Login timeout or success element not detected, exiting.")
+                context.close()
+                return
 
         # ==================== Event 2: Listen for core cookie write to memory ====================
         print(

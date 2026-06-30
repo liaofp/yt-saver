@@ -4,3 +4,4 @@ __pycache__/
 *.log
 tasks.yml
 AGENTS.md
+.env
