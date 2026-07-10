@@ -13,53 +13,185 @@ from playwright.sync_api import (
 )
 
 
+YOUTUBE_SUBSCRIPTIONS_URL = "https://www.youtube.com/feed/subscriptions"
+
+
 def auto_login(page: Page, email: str, password: str) -> bool:
     """
     使用预设的邮箱和密码自动完成 Google/YouTube 登录。
+    页面应已处于 YouTube 订阅页（未登录时会显示登录入口）。
     登录成功后返回 True，失败返回 False。
     """
-    print("[*] Auto-login mode: navigating to Google sign-in page...")
+    print("[*] Auto-login mode: looking for sign-in button on current page...")
     try:
-        # 1. 打开 Google 登录页
-        page.goto("https://accounts.google.com/signin/v2/identifier?service=youtube")
+        # 1. 尝试点击页面上的登录按钮（若当前在 YouTube 页面）
+        signin_selectors = [
+            'a[href*="https://accounts.google.com/ServiceLogin"]',
+            'a[href*="/signin"]',
+            'button:has-text("Sign in")',
+            'button:has-text("登录")',
+            'a:has-text("Sign in")',
+            'a:has-text("登录")',
+        ]
+        signin_btn = None
+        for selector in signin_selectors:
+            try:
+                el = page.locator(selector).first
+                el.wait_for(state="visible", timeout=3000)
+                signin_btn = el
+                print(f"[+] Found sign-in link using selector: {selector}")
+                break
+            except Exception:
+                continue
+
+        if signin_btn:
+            signin_btn.click()
+            # 等待跳转到 Google 登录页
+            try:
+                page.wait_for_url(lambda url: "accounts.google.com" in url, timeout=10000)
+                print("[+] Navigated to Google sign-in page.")
+            except Exception:
+                print("[-] Failed to navigate to Google sign-in page.")
+                return False
+        else:
+            # 如果已经在 Google 登录页，直接继续
+            current_url = page.url
+            if "accounts.google.com" not in current_url:
+                print("[-] Could not find sign-in entry and not on Google login page.")
+                return False
+            print("[*] Already on Google sign-in page, proceeding...")
+
         page.wait_for_load_state("networkidle")
 
         # 2. 填写邮箱
         print(f"[*] Filling email: {email}")
-        email_input = page.locator('input[type="email"]')
-        email_input.wait_for(state="visible", timeout=10000)
+        email_selectors = [
+            'input[type="email"]',
+            'input[name="identifier"]',
+            'input[inputmode="email"]',
+            '#identifierId',
+        ]
+        email_input = None
+        for selector in email_selectors:
+            try:
+                el = page.locator(selector).first
+                el.wait_for(state="visible", timeout=2000)
+                email_input = el
+                print(f"[+] Found email input using selector: {selector}")
+                break
+            except Exception:
+                continue
+        
+        if email_input is None:
+            print("[-] Could not find email input field on the page.")
+            content = page.content()
+            import re
+            inputs = re.findall(r'<input[^>]*>', content)
+            for inp in inputs[:5]:
+                print(f"    {inp}")
+            return False
+
+        email_input.click()
+        time.sleep(0.3)
         email_input.fill(email)
         time.sleep(0.5)
 
         # 3. 点击下一步
-        page.locator("#identifierNext button").click()
-        time.sleep(1.5)
+        next_btn_selectors = [
+            'button:has-text("Next")',
+            'button:has-text("下一步")',
+            'div#identifierNext button',
+            '#identifierNext',
+            '[data-primary-action] button',
+            'button[type="button"]',
+        ]
+        next_btn = None
+        for selector in next_btn_selectors:
+            try:
+                el = page.locator(selector).first
+                el.wait_for(state="visible", timeout=2000)
+                if el.is_enabled():
+                    next_btn = el
+                    print(f"[+] Found next button using selector: {selector}")
+                    break
+            except Exception:
+                continue
+        
+        if next_btn is None:
+            print("[-] Could not find the 'Next' button after email input.")
+            return False
+        
+        next_btn.click()
+        time.sleep(2)
 
-        # 4. 填写密码
+        # 4. 等待密码输入框出现
+        password_selectors = [
+            'input[type="password"]',
+            'input[name="password"]',
+            'input[autocomplete="current-password"]',
+        ]
+        password_input = None
+        for selector in password_selectors:
+            try:
+                el = page.locator(selector).first
+                el.wait_for(state="visible", timeout=10000)
+                password_input = el
+                print(f"[+] Found password input using selector: {selector}")
+                break
+            except Exception:
+                continue
+        
+        if password_input is None:
+            print("[-] Could not find password input field.")
+            return False
+
+        # 5. 填写密码
         print("[*] Filling password...")
-        password_input = page.locator('input[type="password"]')
-        password_input.wait_for(state="visible", timeout=10000)
+        password_input.click()
+        time.sleep(0.3)
         password_input.fill(password)
         time.sleep(0.5)
 
-        # 5. 点击下一步（登录）
-        page.locator("#passwordNext button").click()
-        time.sleep(2)
+        # 6. 点击登录按钮
+        pwd_next_selectors = [
+            'button:has-text("Next")',
+            'button:has-text("下一步")',
+            'div#passwordNext button',
+            '#passwordNext',
+            '[data-primary-action] button',
+            'button[type="button"]',
+        ]
+        pwd_next_btn = None
+        for selector in pwd_next_selectors:
+            try:
+                el = page.locator(selector).first
+                el.wait_for(state="visible", timeout=3000)
+                if el.is_enabled():
+                    pwd_next_btn = el
+                    print(f"[+] Found password next button using selector: {selector}")
+                    break
+            except Exception:
+                continue
+        
+        if pwd_next_btn is None:
+            print("[-] Could not find the 'Next' button after password input.")
+            return False
+        
+        pwd_next_btn.click()
 
-        # 6. 等待页面跳转或加载完成
-        page.wait_for_load_state("networkidle", timeout=15000)
+        # 7. 等待页面跳转或加载完成
+        page.wait_for_load_state("networkidle", timeout=20000)
 
-        # 7. 检查是否仍在登录页（说明登录失败或需要二次验证）
+        # 8. 检查是否仍在登录页
         current_url = page.url
         if "accounts.google.com" in current_url:
-            if "challenge" in current_url or "signin" in current_url:
+            if "challenge" in current_url or "signin" in current_url or "identifier" in current_url:
                 print(
                     "[!] Auto-login paused: additional verification required (2FA/CAPTCHA)."
                     " Please complete it manually in the browser."
                 )
-                # 等待用户手动完成验证，最长 120 秒
                 try:
-                    page.wait_for_url(lambda url: "accounts.google.com" not in url, timeout=120000)
+                    page.wait_for_url(lambda url: "accounts.google.com" not in url, timeout=180000)
                     print("[+] Manual verification completed successfully.")
                 except Exception:
                     print("[-] Manual verification timeout.")
@@ -275,14 +407,20 @@ def save_cookies(
         print(f"[-] Failed to write cookie file: {e}")
 
 
-def verify_cookies(page: Page) -> bool:
+def verify_cookies(page: Page, reuse_current_page: bool = False) -> bool:
     """
     Lightweight cookie validity check.
     Visit the subscriptions page; if redirected to accounts.google.com, cookies are invalid.
+    
+    Args:
+        page: Playwright Page instance.
+        reuse_current_page: If True, skip page navigation and verify using the current page state.
+                           Useful when the page is already on a YouTube page that requires login.
     """
     print("[*] Verifying current cookie validity...")
     try:
-        response = page.goto("https://www.youtube.com/feed/subscriptions")
+        if not reuse_current_page:
+            response = page.goto(YOUTUBE_SUBSCRIPTIONS_URL)
         current_url: str = page.url
 
         if "accounts.google.com" in current_url:
@@ -311,15 +449,15 @@ def refresh_cookies(
     """
     print("[*] Triggering self-healing: attempting to refresh page for new cookies...")
     try:
-        # Navigate to homepage and let internal JS perform a legal token renewal
-        page.goto("https://www.youtube.com/")
+        # Navigate to subscriptions page and let internal JS perform a legal token renewal
+        page.goto(YOUTUBE_SUBSCRIPTIONS_URL)
         page.wait_for_load_state("networkidle")  # wait until network is idle
 
         # Update local file
         save_cookies(context, output_path)
 
-        # Re-verify in a closed loop
-        return verify_cookies(page)
+        # Re-verify in a closed loop; page is already on YouTube, so reuse state
+        return verify_cookies(page, reuse_current_page=True)
     except Exception as e:
         print(f"[-] Cookie refresh failed: {e}")
         return False
@@ -359,8 +497,8 @@ def get_cookies() -> Tuple[Optional[BrowserContext], Optional[Page]]:
     # 1. Launch a stealthy local browser
     context, page = initialize_browser(_playwright_instance, headless=False)
 
-    print("[*] Opening YouTube homepage...")
-    page.goto("https://www.youtube.com/")
+    print("[*] Opening YouTube subscriptions page...")
+    page.goto(YOUTUBE_SUBSCRIPTIONS_URL)
 
     # 检查环境变量是否配置了自动登录凭据
     email = os.environ.get("YOUTUBE_EMAIL")
@@ -375,6 +513,12 @@ def get_cookies() -> Tuple[Optional[BrowserContext], Optional[Page]]:
             _playwright_instance.stop()
             _playwright_instance = None
             return None, None
+        # 自动登录成功后，等待页面稳定，直接提取 cookies
+        print("[*] Auto-login succeeded, waiting for page to stabilize before extracting cookies...")
+        try:
+            page.wait_for_load_state("networkidle", timeout=15000)
+        except Exception:
+            pass
     else:
         print(
             "[!] [Event listener active] Please click Sign In in the opened browser and complete login..."
@@ -474,8 +618,8 @@ def main() -> None:
         # 1. Launch a stealthy local browser
         context, page = initialize_browser(playwright, headless=False)
 
-        print("[*] Opening YouTube homepage...")
-        page.goto("https://www.youtube.com/")
+        print("[*] Opening YouTube subscriptions page...")
+        page.goto(YOUTUBE_SUBSCRIPTIONS_URL)
 
         # 检查环境变量是否配置了自动登录凭据
         email = os.environ.get("YOUTUBE_EMAIL")
@@ -488,6 +632,12 @@ def main() -> None:
                 print("[-] Auto-login failed, exiting.")
                 context.close()
                 return
+            # 自动登录成功后，等待页面稳定，直接提取 cookies
+            print("[*] Auto-login succeeded, waiting for page to stabilize before extracting cookies...")
+            try:
+                page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                pass
         else:
             print(
                 "[!] [Event listener active] Please click Sign In in the opened browser and complete login..."
@@ -548,7 +698,7 @@ def main() -> None:
         print("\n[*] Sleep ended, starting validity assessment...")
         if not verify_cookies(page):
             success: bool = refresh_cookies(
-                page, context, cookies_file="cookies.txt"
+                page, context, output_path="cookies.txt"
             )
             if success:
                 print("[+] Self-healing successful! New cookies are ready.")

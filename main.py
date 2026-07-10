@@ -97,6 +97,22 @@ class BatchDownloader:
         # Check whether cookies.txt exists locally; if not, guide the user to log in
         context: Optional[BrowserContext] = None
         page: Optional[Page] = None
+
+        # Load environment variables from .env if present (needed for auto-login credentials)
+        env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+        if os.path.exists(env_path):
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, value = line.split("=", 1)
+                    key = key.strip()
+                    value = value.strip().strip('"').strip("'")
+                    if key and key not in os.environ:
+                        os.environ[key] = value
+            print(f"[*] Loaded environment variables from: {env_path}")
+
         if not os.path.exists("cookies.txt"):
             print(
                 "[!] cookies.txt not detected. YouTube login is required to obtain cookies..."
@@ -113,10 +129,11 @@ class BatchDownloader:
         print(f"📂 Found {total} tasks, starting batch processing...\n")
 
         for i, (url, task_value) in enumerate(tasks.items(), 1):
-            # After every two tasks, verify whether cookies are still valid
-            if i > 1 and (i - 1) % 2 == 0:
+            # After every three tasks, verify whether cookies are still valid
+            if i > 1 and (i - 1) % 3 == 0:
                 if context and page:
-                    print("[*] Two tasks completed, checking cookie validity...")
+                    print("[*] Three tasks completed, checking cookie validity...")
+                    # First verification: page state is unknown, perform navigation
                     if not verify_cookies(page):
                         print("[!] Cookies expired, attempting self-healing refresh...")
                         if not refresh_cookies(page, context, output_path="cookies.txt"):
@@ -130,6 +147,9 @@ class BatchDownloader:
                             except Exception as e:
                                 print(f"❌ Failed to re-obtain cookies: {e}")
                                 sys.exit(1)
+                    # If verify_cookies succeeded, page is already on subscriptions page;
+                    # next loop iteration will trigger trigger_github_action (no browser navigation),
+                    # so the page state remains valid and does not need another refresh.
                 else:
                     # If there was no browser context (e.g. user pre-supplied cookies.txt),
                     # verification is impossible; skip
