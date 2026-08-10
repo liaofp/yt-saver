@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+import random
 from typing import Tuple, Optional
 from playwright.sync_api import (
     Playwright,
@@ -66,10 +67,10 @@ def auto_login(page: Page, email: str, password: str) -> bool:
         # 2. 填写邮箱
         print(f"[*] Filling email: {email}")
         email_selectors = [
+            '#identifierId',
             'input[type="email"]',
             'input[name="identifier"]',
             'input[inputmode="email"]',
-            '#identifierId',
         ]
         email_input = None
         for selector in email_selectors:
@@ -91,19 +92,17 @@ def auto_login(page: Page, email: str, password: str) -> bool:
                 print(f"    {inp}")
             return False
 
+        # 模拟真人操作：悬停、点击、然后逐字输入
+        email_input.hover()
         email_input.click()
-        time.sleep(0.3)
-        email_input.fill(email)
-        time.sleep(0.5)
+        email_input.type(email, delay=random.uniform(80, 150))
+        page.wait_for_timeout(random.uniform(300, 600))
 
         # 3. 点击下一步
         next_btn_selectors = [
+            '#identifierNext button',
             'button:has-text("Next")',
             'button:has-text("下一步")',
-            'div#identifierNext button',
-            '#identifierNext',
-            '[data-primary-action] button',
-            'button[type="button"]',
         ]
         next_btn = None
         for selector in next_btn_selectors:
@@ -120,15 +119,17 @@ def auto_login(page: Page, email: str, password: str) -> bool:
         if next_btn is None:
             print("[-] Could not find the 'Next' button after email input.")
             return False
-        
+
+        next_btn.hover()
         next_btn.click()
-        time.sleep(2)
+        # 等待密码输入框出现，这是比等待页面加载状态更可靠的方式
+        page.wait_for_selector('input[name="Passwd"]', state="visible", timeout=10000)
 
         # 4. 等待密码输入框出现
         password_selectors = [
+            'input[name="Passwd"]', # Google's current password input name
             'input[type="password"]',
-            'input[name="password"]',
-            'input[autocomplete="current-password"]',
+            'input[name="password"]', # Fallback
         ]
         password_input = None
         for selector in password_selectors:
@@ -147,19 +148,16 @@ def auto_login(page: Page, email: str, password: str) -> bool:
 
         # 5. 填写密码
         print("[*] Filling password...")
-        password_input.click()
-        time.sleep(0.3)
-        password_input.fill(password)
-        time.sleep(0.5)
+        password_input.hover()
+        # 模拟真人输入密码，速度可以稍快
+        password_input.type(password, delay=random.uniform(100, 180))
+        page.wait_for_timeout(random.uniform(400, 700))
 
         # 6. 点击登录按钮
         pwd_next_selectors = [
+            '#passwordNext button',
             'button:has-text("Next")',
             'button:has-text("下一步")',
-            'div#passwordNext button',
-            '#passwordNext',
-            '[data-primary-action] button',
-            'button[type="button"]',
         ]
         pwd_next_btn = None
         for selector in pwd_next_selectors:
@@ -177,6 +175,7 @@ def auto_login(page: Page, email: str, password: str) -> bool:
             print("[-] Could not find the 'Next' button after password input.")
             return False
         
+        pwd_next_btn.hover()
         pwd_next_btn.click()
 
         # 7. 等待页面跳转或加载完成
