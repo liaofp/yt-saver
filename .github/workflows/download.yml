@@ -95,14 +95,13 @@ jobs:
             exit 1
           fi
 
-          # yt-dlp args: use mweb client with bgutil PO Token provider plugin
-          # Wiki recommends: mweb client + PO Token Provider plugin for GVS requests
-          # The plugin automatically generates a per-video PO Token, no manual token needed
+          # yt-dlp args: use default clients (tv_downgraded,web when cookies present)
+          # bgutil PO Token provider plugin auto-generates per-video PO Tokens for web client
+          # yt-dlp docs: https://github.com/yt-dlp/yt-dlp#extractor-arguments
           BASE_ARGS=(
             --cookies cookies.txt
             --user-agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
             --add-header "Accept-Language:en-US,en;q=0.9"
-            --remote-components ejs:github
             --js-runtimes node
             --no-check-certificates
             --retries 10
@@ -115,7 +114,6 @@ jobs:
             --throttled-rate 100K
             --buffer-size 16K
             --http-chunk-size 10M
-            --extractor-args "youtube:player_client=android"
           )
           BASE_ARGS+=(--use-extractors "youtube")
 
