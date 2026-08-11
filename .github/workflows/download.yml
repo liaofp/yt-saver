@@ -72,8 +72,10 @@ jobs:
 
       - name: 3. Execute decryption download
         run: |
-          COOKIE_CONTENT="${{ secrets.YOUTUBE_COOKIES }}"
-          if [ -z "$COOKIE_CONTENT" ]; then
+          cat > cookies.txt << 'COOKIES_EOF'
+${{ secrets.YOUTUBE_COOKIES }}
+COOKIES_EOF
+          if [ ! -s cookies.txt ]; then
             echo "❌ Error: YOUTUBE_COOKIES secret is empty or not set."
             echo "Please run 'python3 utils.py' locally to generate cookies.txt, then sync it to GitHub Secrets:"
             echo "  gh secret set YOUTUBE_COOKIES < cookies.txt"
@@ -83,7 +85,6 @@ jobs:
             echo "---RESULT_END---"
             exit 1
           fi
-          echo "$COOKIE_CONTENT" > cookies.txt
 
           # yt-dlp args: use mweb client with bgutil PO Token provider plugin
           # Wiki recommends: mweb client + PO Token Provider plugin for GVS requests
@@ -93,7 +94,7 @@ jobs:
             --user-agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
             --add-header "Accept-Language:en-US,en;q=0.9"
             --remote-components ejs:github
-            --js-runtimes node,deno
+            --js-runtimes node
             --no-check-certificates
             --retries 10
             --fragment-retries 10
