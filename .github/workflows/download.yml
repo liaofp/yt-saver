@@ -135,12 +135,11 @@ jobs:
           fi
 
           YTDLP_ERR_LOG="/tmp/yt-dlp-error.log"
+          YTDLP_EXIT_CODE=0
           if [ "${{ github.event.inputs.download_type }}" = "audio" ]; then
-            yt-dlp "${BASE_ARGS[@]}" -f "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio" --extract-audio --audio-format opus "${{ github.event.inputs.video_url }}" -o "$OUTPUT_TEMPLATE" 2>"$YTDLP_ERR_LOG"
-            YTDLP_EXIT_CODE=$?
+            yt-dlp "${BASE_ARGS[@]}" -f "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio" --extract-audio --audio-format opus "${{ github.event.inputs.video_url }}" -o "$OUTPUT_TEMPLATE" 2>"$YTDLP_ERR_LOG" || YTDLP_EXIT_CODE=$?
           else
-            yt-dlp "${BASE_ARGS[@]}" -f "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]" "${{ github.event.inputs.video_url }}" -o "$OUTPUT_TEMPLATE" 2>"$YTDLP_ERR_LOG"
-            YTDLP_EXIT_CODE=$?
+            yt-dlp "${BASE_ARGS[@]}" -f "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]" "${{ github.event.inputs.video_url }}" -o "$OUTPUT_TEMPLATE" 2>"$YTDLP_ERR_LOG" || YTDLP_EXIT_CODE=$?
           fi
 
           # Locate the actually downloaded file (match filename prefix)

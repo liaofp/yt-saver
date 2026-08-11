@@ -493,11 +493,13 @@ def get_cookies() -> Tuple[Optional[BrowserContext], Optional[Page]]:
 
     _playwright_instance = sync_playwright().start()
 
-    # 1. Launch a stealthy local browser
-    context, page = initialize_browser(_playwright_instance, headless=False)
-
-    print("[*] Opening YouTube subscriptions page...")
-    page.goto(YOUTUBE_SUBSCRIPTIONS_URL)
+    # 统一初始化浏览器和页面
+    try:
+        context, page = initialize_browser(_playwright_instance, headless=False)
+    except Exception as e:
+        print(f"[-] Failed to initialize browser: {e}")
+        _playwright_instance.stop()
+        return None, None
 
     # 检查环境变量是否配置了自动登录凭据
     email = os.environ.get("YOUTUBE_EMAIL")
@@ -505,38 +507,16 @@ def get_cookies() -> Tuple[Optional[BrowserContext], Optional[Page]]:
 
     if email and password:
         print("[!] Auto-login credentials detected in environment variables.")
+        print("[*] Opening YouTube subscriptions page for auto-login...")
+        page.goto(YOUTUBE_SUBSCRIPTIONS_URL)
         login_success = auto_login(page, email, password)
         if not login_success:
             print("[-] Auto-login failed, exiting.")
             context.close()
-            _playwright_instance.stop()
-            _playwright_instance = None
             return None, None
-        # 自动登录成功后，等待页面稳定，直接提取 cookies
-        print("[*] Auto-login succeeded, waiting for page to stabilize before extracting cookies...")
-        try:
-            page.wait_for_load_state("networkidle", timeout=15000)
-        except Exception:
-            pass
     else:
-        print(
-            "[!] [Event listener active] Please click Sign In in the opened browser and complete login..."
-        )
-
-        # ==================== Event 1: Listen for login-success DOM signal ====================
-        try:
-            avatar_selector: str = "button#avatar-btn"
-            # wait_for_selector is an efficient low-level event listener:
-            # it resumes the moment the element appears, up to 120 s
-            page.wait_for_selector(avatar_selector, timeout=120000)
-            print(
-                "[+] [Event 1 triggered]: user avatar detected on page, DOM-level login confirmed!"
-            )
-        except Exception:
-            print("[-] Login timeout or success element not detected, exiting.")
-            context.close()
-            _playwright_instance.stop()
-            _playwright_instance = None
+        print("[*] No auto-login credentials found, falling back to manual login.")
+        if not manual_login(page, context):
             return None, None
 
     # ==================== Event 2: Listen for core cookie write to memory ====================
@@ -572,6 +552,51 @@ def get_cookies() -> Tuple[Optional[BrowserContext], Optional[Page]]:
     )
 
     return context, page
+
+
+def manual_login(page: Page, context: BrowserContext) -> bool:
+    """
+    手动登录：打开浏览器 → 用户手动在 YouTube 页面登录 → 自动提取 cookies。
+
+    返回 True 表示登录并保存 cookie 成功，否则返回 False。
+    独立于 auto_login，不依赖 .env 环境变量。
+    适用于首次设置或 cookies 过期需要重新登录的场景。
+    """
+    print("[*] Opening YouTube subscriptions page...")
+    page.goto(YOUTUBE_SUBSCRIPTIONS_URL)
+
+    print(
+        "[!] Please click 'Sign in' in the browser window and complete login manually.\n"
+        "    The script will detect the login automatically and save cookies. (Timeout: 120s)"
+    )
+
+    try:
+        page.wait_for_selector("button#avatar-btn", timeout=120000)
+        print("[+] Login detected! User avatar found on page.")
+    except Exception:
+        print("[-] Login timeout (120s). No login detected.")
+        context.close()
+        return False
+
+    print("[*] Waiting for core session cookies to sync...")
+    max_cookie_wait = 15
+    start_time = time.time()
+    cookies_captured = False
+
+    while time.time() - start_time < max_cookie_wait:
+        if is_login(context):
+            print("[+] Core security cookies fully captured in memory!")
+            cookies_captured = True
+            break
+        time.sleep(0.5)
+
+    if not cookies_captured:
+        print("[!] Warning: core cookies did not fully sync within 15s; capturing available fragments.")
+
+    save_cookies(context, cookies_file="cookies.txt")
+    print("[+] Cookies saved to cookies.txt")
+
+    return True
 
 
 def close_browser(context: Optional[BrowserContext] = None) -> None:
@@ -613,101 +638,25 @@ def main() -> None:
                     os.environ[key] = value
         print(f"[*] Loaded environment variables from: {env_path}")
 
-    with sync_playwright() as playwright:
-        # 1. Launch a stealthy local browser
-        context, page = initialize_browser(playwright, headless=False)
+    # The get_cookies function handles both auto and manual login flows.
+    context, page = None, None
+    try:
+        context, page = get_cookies()
 
-        print("[*] Opening YouTube subscriptions page...")
-        page.goto(YOUTUBE_SUBSCRIPTIONS_URL)
-
-        # 检查环境变量是否配置了自动登录凭据
-        email = os.environ.get("YOUTUBE_EMAIL")
-        password = os.environ.get("YOUTUBE_PASSWORD")
-
-        if email and password:
-            print("[!] Auto-login credentials detected in environment variables.")
-            login_success = auto_login(page, email, password)
-            if not login_success:
-                print("[-] Auto-login failed, exiting.")
-                context.close()
-                return
-            # 自动登录成功后，等待页面稳定，直接提取 cookies
-            print("[*] Auto-login succeeded, waiting for page to stabilize before extracting cookies...")
-            try:
-                page.wait_for_load_state("networkidle", timeout=15000)
-            except Exception:
-                pass
+        if context and page:
+            print("\n[*] Cookie acquisition process finished. Browser will remain open.")
+            print("    Press Ctrl+C to close the browser and exit.")
+            while True:
+                time.sleep(1)  # Block the script to keep the browser open
         else:
-            print(
-                "[!] [Event listener active] Please click Sign In in the opened browser and complete login..."
-            )
+            print("\n[-] Cookie acquisition failed or was cancelled.")
 
-            # ==================== Event 1: Listen for login-success DOM signal ====================
-            try:
-                avatar_selector: str = "button#avatar-btn"
-                page.wait_for_selector(avatar_selector, timeout=120000)
-                print(
-                    "[+] [Event 1 triggered]: user avatar detected on page, "
-                    "DOM-level login confirmed!"
-                )
-            except Exception:
-                print("[-] Login timeout or success element not detected, exiting.")
-                context.close()
-                return
-
-        # ==================== Event 2: Listen for core cookie write to memory ====================
-        print(
-            "[*] [Event listener active] Monitoring browser memory, "
-            "waiting for core encrypted session cookies to sync..."
-        )
-
-        max_cookie_wait: int = 15
-        start_time: float = time.time()
-        cookies_captured: bool = False
-
-        while time.time() - start_time < max_cookie_wait:
-            if is_login(context):
-                print(
-                    "[+] [Event 2 triggered]: core security cookies "
-                    "(__Secure-3PSID etc.) fully captured in memory!"
-                )
-                cookies_captured = True
-                break
-            time.sleep(0.5)
-
-        if not cookies_captured:
-            print(
-                "[!] Warning: login detected but core security cookies did not fully sync "
-                "within 15 s; forcing capture of existing fragments."
-            )
-
-        # Trigger instant write
-        save_cookies(context, cookies_file="cookies.txt")
-        print(
-            "[+] State transition: cookie file written instantly, perfectly compatible with yt-dlp."
-        )
-
-        # ==================== Business Sleep ====================
-        print("\n" + "=" * 40)
-        print("[*] Module entering normal test sleep phase: waiting 3 minutes (180 s)...")
-        print("=" * 40)
-        time.sleep(60)
-
-        # 5. After sleep, perform validity check and self-healing test
-        print("\n[*] Sleep ended, starting validity assessment...")
-        if not verify_cookies(page):
-            success: bool = refresh_cookies(
-                page, context, output_path="cookies.txt"
-            )
-            if success:
-                print("[+] Self-healing successful! New cookies are ready.")
-            else:
-                print("[-] Self-healing failed.")
-        else:
-            print("[+] Session is intact, no refresh needed.")
-
-        context.close()
-
+    except KeyboardInterrupt:
+        print("\n[*] Keyboard interrupt received. Closing browser...")
+    finally:
+        if context:
+            close_browser(context)
+        print("[+] Cleanup complete. Exiting.")
 
 if __name__ == "__main__":
     main()
