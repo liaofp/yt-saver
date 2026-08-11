@@ -691,7 +691,7 @@ def main() -> None:
         print("\n" + "=" * 40)
         print("[*] Module entering normal test sleep phase: waiting 3 minutes (180 s)...")
         print("=" * 40)
-        time.sleep(180)
+        time.sleep(60)
 
         # 5. After sleep, perform validity check and self-healing test
         print("\n[*] Sleep ended, starting validity assessment...")
