@@ -38,7 +38,7 @@ jobs:
       - name: 2. Install dependencies (force-update yt-dlp + PO Token provider)
         run: |
           sudo python3 -m pip install -U yt-dlp
-          sudo apt-get update && sudo apt-get install -y ffmpeg nodejs jq git
+          sudo apt-get update && sudo apt-get install -y ffmpeg jq git
           # Install Deno as JS runtime (required for YouTube signature decryption in 2026)
           curl -fsSL https://deno.land/install.sh | sudo DENO_INSTALL=/usr/local sh
           # Ensure yt-dlp is updated to the latest stable version
@@ -105,7 +105,7 @@ jobs:
             --geo-bypass
             --buffer-size 16K
             --http-chunk-size 10M
-            --extractor-args "youtube:player_client=mediaconnect;pot-provider=bgutil"
+            --extractor-args "youtube:player_client=mweb"
           )
 
           # Generate timestamp first so the same value is used before and after download
