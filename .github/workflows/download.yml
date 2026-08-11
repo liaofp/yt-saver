@@ -117,7 +117,7 @@ jobs:
             --http-chunk-size 10M
             --extractor-args "youtube:player_client=mweb"
           )
-          BASE_ARGS+=(--use-extractors "youtube:youtube") # 强制使用插件
+          BASE_ARGS+=(--use-extractors "youtube")
 
           # Generate timestamp first so the same value is used before and after download
           TIMESTAMP_MS=$(date +%s%3N)
