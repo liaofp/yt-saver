@@ -104,12 +104,12 @@ jobs:
             --retry-sleep fragment:exp=2:10
             --force-ipv4
             --geo-bypass
-            --throttled-rate 100K
             --buffer-size 16K
             --http-chunk-size 10M
-            --extractor-args "youtube:player_client=mweb"
+            # 关键修复：合并 player_client 和 pot-provider 到同一个参数中
+            --extractor-args "youtube:player_client=mweb,pot-provider=script"
           )
-          BASE_ARGS+=(--use-extractors "youtube:youtube") # 强制使用插件
+          BASE_ARGS+=(--use-extractors "youtube:youtube") # 强制 yt-dlp 使用插件
 
           # Generate timestamp first so the same value is used before and after download
           TIMESTAMP_MS=$(date +%s%3N)
