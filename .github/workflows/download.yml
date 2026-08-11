@@ -115,6 +115,7 @@ jobs:
             --http-chunk-size 10M
             --verbose
           )
+          BASE_ARGS+=(--use-extractors "youtube")
 
           # Generate timestamp first so the same value is used before and after download
           TIMESTAMP_MS=$(date +%s%3N)
@@ -145,7 +146,7 @@ jobs:
           if [ -z "$FINAL_FILE" ] || [ $YTDLP_EXIT_CODE -ne 0 ]; then
             echo "❌ Error: yt-dlp download failed, no output file found"
             # Collect last meaningful error lines from stderr log
-            YTDLP_LAST_ERR=$(tail -n 20 "$YTDLP_ERR_LOG" 2>/dev/null || true)
+            YTDLP_LAST_ERR=$(tail -n 60 "$YTDLP_ERR_LOG" 2>/dev/null || true)
             # Fallback: also grep for common yt-dlp error keywords if tail is empty
             if [ -z "$YTDLP_LAST_ERR" ]; then
               YTDLP_LAST_ERR="Unknown error (no stderr captured)."
