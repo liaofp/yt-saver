@@ -95,8 +95,7 @@ jobs:
             exit 1
           fi
 
-          # yt-dlp args: use ios client (does not require PO Token)
-          # Cookes provide authentication; ios + tv_downgraded are YouTube's most reliable clients
+          # yt-dlp args: use tv_downgraded client (supports cookies, no PO Token needed)
           BASE_ARGS=(
             --cookies cookies.txt
             --user-agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -113,7 +112,7 @@ jobs:
             --throttled-rate 100K
             --buffer-size 16K
             --http-chunk-size 10M
-            --extractor-args "youtube:player_client=ios"
+            --extractor-args "youtube:player_client=tv_downgraded"
           )
 
           # Generate timestamp first so the same value is used before and after download
