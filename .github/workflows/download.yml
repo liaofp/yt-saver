@@ -95,9 +95,8 @@ jobs:
             exit 1
           fi
 
-          # yt-dlp args: use default clients (tv_downgraded,web when cookies present)
-          # bgutil PO Token provider plugin auto-generates per-video PO Tokens for web client
-          # yt-dlp docs: https://github.com/yt-dlp/yt-dlp#extractor-arguments
+          # yt-dlp args: use ios client (does not require PO Token)
+          # Cookes provide authentication; ios + tv_downgraded are YouTube's most reliable clients
           BASE_ARGS=(
             --cookies cookies.txt
             --user-agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -114,8 +113,8 @@ jobs:
             --throttled-rate 100K
             --buffer-size 16K
             --http-chunk-size 10M
+            --extractor-args "youtube:player_client=ios"
           )
-          BASE_ARGS+=(--use-extractors "youtube")
 
           # Generate timestamp first so the same value is used before and after download
           TIMESTAMP_MS=$(date +%s%3N)
