@@ -109,6 +109,7 @@ jobs:
             --http-chunk-size 10M
             --extractor-args "youtube:player_client=mweb"
           )
+          BASE_ARGS+=(--use-extractors "youtube:youtube") # 强制使用插件
 
           # Generate timestamp first so the same value is used before and after download
           TIMESTAMP_MS=$(date +%s%3N)
@@ -127,10 +128,10 @@ jobs:
 
           YTDLP_ERR_LOG="/tmp/yt-dlp-error.log"
           if [ "${{ github.event.inputs.download_type }}" = "audio" ]; then
-            yt-dlp "${BASE_ARGS[@]}" -f "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio" --extract-audio --audio-format opus "${{ github.event.inputs.video_url }}" -o "$OUTPUT_TEMPLATE" 2>"$YTDLP_ERR_LOG"
+            yt-dlp "${BASE_ARGS[@]}" -f "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio" --extract-audio --audio-format opus "${{ github.event.inputs.video_url }}" -o "$OUTPUT_TEMPLATE" 2>"$YTDLP_ERR_LOG"
             YTDLP_EXIT_CODE=$?
           else
-            yt-dlp "${BASE_ARGS[@]}" -f "best[height<=720][ext=mp4]/best" "${{ github.event.inputs.video_url }}" -o "$OUTPUT_TEMPLATE" 2>"$YTDLP_ERR_LOG"
+            yt-dlp "${BASE_ARGS[@]}" -f "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]" "${{ github.event.inputs.video_url }}" -o "$OUTPUT_TEMPLATE" 2>"$YTDLP_ERR_LOG"
             YTDLP_EXIT_CODE=$?
           fi
 
