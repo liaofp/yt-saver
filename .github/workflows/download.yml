@@ -72,14 +72,22 @@ jobs:
 
       - name: 3. Execute decryption download
         run: |
-          echo "${{ secrets.YOUTUBE_COOKIES_B64 }}" | base64 -d > cookies.txt 2>/dev/null
-          if [ ! -s cookies.txt ]; then
+          B64_ENCODED="${{ secrets.YOUTUBE_COOKIES_B64 }}"
+          if [ -z "$B64_ENCODED" ]; then
             echo "❌ Error: YOUTUBE_COOKIES_B64 secret is empty or not set."
-            echo "Please run 'python3 utils.py' locally to generate cookies.txt, then sync it to GitHub Secrets:"
-            echo "  gh secret set YOUTUBE_COOKIES_B64 --body \"\$(base64 cookies.txt)\""
+            echo "Please run 'python3 youtube.py' locally to sync cookies."
             echo "---RESULT_START---"
             echo "STATUS: FAILED"
             echo "REASON: YOUTUBE_COOKIES_B64 secret is empty or not set."
+            echo "---RESULT_END---"
+            exit 1
+          fi
+          echo "$B64_ENCODED" | base64 -d > cookies.txt 2>/dev/null
+          if [ ! -s cookies.txt ]; then
+            echo "❌ Error: Failed to decode cookies from base64 secret."
+            echo "---RESULT_START---"
+            echo "STATUS: FAILED"
+            echo "REASON: Failed to decode cookies from base64 secret."
             echo "---RESULT_END---"
             exit 1
           fi
