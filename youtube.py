@@ -240,8 +240,11 @@ def trigger_github_action(args: argparse.Namespace) -> None:
             print(f"[!] Warning: {COOKIE_FILE} exists but is empty. Skipping sync to GitHub Secrets.")
         else:
             if args.verbose:
-                print(f"[*] Syncing {COOKIE_FILE} to GitHub Secrets...")
-            run_command(f"gh secret set YOUTUBE_COOKIES < {COOKIE_FILE}")
+                print(f"[*] Syncing {COOKIE_FILE} to GitHub Secrets (base64-encoded)...")
+            import base64
+            with open(COOKIE_FILE, 'rb') as f:
+                encoded = base64.b64encode(f.read()).decode('ascii')
+            run_command(f"gh secret set YOUTUBE_COOKIES_B64 --body '{encoded}'")
 
     cmd: str = (
         f"gh workflow run {WORKFLOW_FILE} "
