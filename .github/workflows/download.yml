@@ -38,9 +38,7 @@ jobs:
       - name: 2. Install dependencies (force-update yt-dlp + PO Token provider)
         run: |
           sudo python3 -m pip install -U yt-dlp
-          sudo apt-get update && sudo apt-get install -y ffmpeg jq git
-          # Install Deno as JS runtime (required for YouTube signature decryption in 2026)
-          curl -fsSL https://deno.land/install.sh | sudo DENO_INSTALL=/usr/local sh
+          sudo apt-get update && sudo apt-get install -y ffmpeg nodejs jq git
           # Ensure yt-dlp is updated to the latest stable version
           sudo yt-dlp --update || true
           # Install bgutil-ytdlp-pot-provider plugin for automatic per-video PO Token generation
@@ -94,6 +92,8 @@ jobs:
             --cookies cookies.txt
             --user-agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
             --add-header "Accept-Language:en-US,en;q=0.9"
+            --remote-components ejs:github
+            --js-runtimes node,deno
             --no-check-certificates
             --retries 10
             --fragment-retries 10
@@ -102,10 +102,12 @@ jobs:
             --retry-sleep fragment:exp=2:10
             --force-ipv4
             --geo-bypass
+            --throttled-rate 100K
             --buffer-size 16K
             --http-chunk-size 10M
             --extractor-args "youtube:player_client=mweb"
           )
+          BASE_ARGS+=(--use-extractors "youtube:youtube") # 强制使用插件
 
           # Generate timestamp first so the same value is used before and after download
           TIMESTAMP_MS=$(date +%s%3N)
