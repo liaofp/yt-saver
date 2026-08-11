@@ -115,7 +115,7 @@ jobs:
             --throttled-rate 100K
             --buffer-size 16K
             --http-chunk-size 10M
-            --extractor-args "youtube:player_client=mweb"
+            --extractor-args "youtube:player_client=web"
           )
           BASE_ARGS+=(--use-extractors "youtube")
 
