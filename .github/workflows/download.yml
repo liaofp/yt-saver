@@ -22,6 +22,10 @@ on:
         description: 'Custom output filename (pure name, no extension)'
         default: ''
         required: false
+      cookies_b64:
+        description: 'Base64-encoded cookies.txt (auto-filled by youtube.py)'
+        default: ''
+        required: false
 
 permissions:
   contents: read
@@ -72,22 +76,21 @@ jobs:
 
       - name: 3. Execute decryption download
         run: |
-          B64_ENCODED="${{ secrets.YOUTUBE_COOKIES_B64 }}"
-          if [ -z "$B64_ENCODED" ]; then
-            echo "❌ Error: YOUTUBE_COOKIES_B64 secret is empty or not set."
-            echo "Please run 'python3 youtube.py' locally to sync cookies."
+          COOKIES_B64="${{ github.event.inputs.cookies_b64 }}"
+          if [ -z "$COOKIES_B64" ]; then
+            echo "❌ Error: cookies_b64 input is empty."
+            echo "Please run 'python3 youtube.py' locally to trigger the workflow."
             echo "---RESULT_START---"
             echo "STATUS: FAILED"
-            echo "REASON: YOUTUBE_COOKIES_B64 secret is empty or not set."
+            echo "REASON: cookies_b64 input is empty. Run 'python3 youtube.py' to trigger."
             echo "---RESULT_END---"
             exit 1
           fi
-          echo "$B64_ENCODED" | base64 -d > cookies.txt 2>/dev/null
-          if [ ! -s cookies.txt ]; then
-            echo "❌ Error: Failed to decode cookies from base64 secret."
+          if ! echo "$COOKIES_B64" | base64 -d > cookies.txt 2>/dev/null; then
+            echo "❌ Error: Failed to decode cookies_b64."
             echo "---RESULT_START---"
             echo "STATUS: FAILED"
-            echo "REASON: Failed to decode cookies from base64 secret."
+            echo "REASON: Failed to decode cookies_b64."
             echo "---RESULT_END---"
             exit 1
           fi

@@ -235,16 +235,16 @@ def trigger_github_action(args: argparse.Namespace) -> None:
     """
     Trigger the remote workflow via GitHub CLI.
     """
+    cookies_b64 = None
     if os.path.exists(COOKIE_FILE):
         if os.path.getsize(COOKIE_FILE) == 0:
-            print(f"[!] Warning: {COOKIE_FILE} exists but is empty. Skipping sync to GitHub Secrets.")
+            print(f"[!] Warning: {COOKIE_FILE} exists but is empty. Skipping cookie sync.")
         else:
             if args.verbose:
-                print(f"[*] Syncing {COOKIE_FILE} to GitHub Secrets (base64-encoded)...")
+                print(f"[*] Reading {COOKIE_FILE} and base64-encoding for workflow input...")
             import base64
             with open(COOKIE_FILE, 'rb') as f:
-                encoded = base64.b64encode(f.read()).decode('ascii')
-            run_command(f"gh secret set YOUTUBE_COOKIES_B64 --body '{encoded}'")
+                cookies_b64 = base64.b64encode(f.read()).decode('ascii')
 
     cmd: str = (
         f"gh workflow run {WORKFLOW_FILE} "
@@ -253,6 +253,10 @@ def trigger_github_action(args: argparse.Namespace) -> None:
         f'-f download_type="{args.mode}" '
         f'-f storage_provider="{args.storage}" '
     )
+
+    # Pass cookies_b64 as workflow input (single-line base64, safe for bash)
+    if cookies_b64:
+        cmd += f'-f cookies_b64="{cookies_b64}" '
 
     # Pass custom filename if set
     if getattr(args, "filename", None):
