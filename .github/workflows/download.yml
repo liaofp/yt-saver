@@ -41,10 +41,9 @@ jobs:
 
       - name: 2. Install dependencies (force-update yt-dlp + PO Token provider)
         run: |
-          sudo python3 -m pip install -U yt-dlp
+          # Force-reinstall latest nightly yt-dlp from master to handle recent YouTube changes
+          sudo python3 -m pip install --no-warnings -U --force-reinstall https://github.com/yt-dlp/yt-dlp/archive/master.tar.gz
           sudo apt-get update && sudo apt-get install -y ffmpeg nodejs jq git
-          # Ensure yt-dlp is updated to the latest stable version
-          sudo yt-dlp --update || true
           # Install bgutil-ytdlp-pot-provider plugin for automatic per-video PO Token generation
           # This is the yt-dlp-recommended way to handle PO Tokens since YouTube binds them to video ID
           sudo python3 -m pip install -U bgutil-ytdlp-pot-provider
@@ -98,6 +97,7 @@ jobs:
           # yt-dlp args: use default clients (tv_downgraded,web with cookies)
           # bgutil plugin generates PO Tokens for web client; --verbose for debugging
           BASE_ARGS=(
+            --rm-cache-dir
             --cookies cookies.txt
             --user-agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
             --add-header "Accept-Language:en-US,en;q=0.9"
@@ -110,7 +110,6 @@ jobs:
             --retry-sleep fragment:exp=2:10
             --force-ipv4
             --geo-bypass
-            --throttled-rate 100K
             --buffer-size 16K
             --http-chunk-size 10M
             --verbose
