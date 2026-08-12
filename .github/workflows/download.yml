@@ -98,12 +98,14 @@ jobs:
           # yt-dlp args: use web_embedded client (tv_downgraded is broken since Aug 2026
           # due to YouTube's new TVHTML5 JS changes - see yt-dlp#17389)
           # bgutil plugin generates per-video PO Tokens (YouTube now binds them to video ID - see yt-dlp#17404)
+          # --remote-components ejs:github enables the EJS challenge solver script (required since Aug 2026)
           BASE_ARGS=(
             --rm-cache-dir
             --cookies cookies.txt
             --user-agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
             --add-header "Accept-Language:en-US,en;q=0.9"
             --js-runtimes node
+            --remote-components ejs:github
             --no-check-certificates
             --retries 10
             --fragment-retries 10
