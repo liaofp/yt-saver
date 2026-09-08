@@ -47,10 +47,15 @@ jobs:
           sudo yt-dlp --update || true
           # Install bgutil-ytdlp-pot-provider plugin for automatic per-video PO Token generation
           # This is the yt-dlp-recommended way to handle PO Tokens since YouTube binds them to video ID
+          # Track latest releases: both the plugin and the script must stay on the same major
+          # version or the plugin hard-rejects, so derive the script tag from the installed
+          # plugin version instead of pinning a branch manually
           sudo python3 -m pip install -U bgutil-ytdlp-pot-provider
-          # Clone and build the provider server code (required for script-mode PO Token generation)
+          # Clone the provider server code (required for script-mode PO Token generation)
           # The plugin looks for it at ~/bgutil-ytdlp-pot-provider by default
-          git clone --single-branch --branch 1.3.1 https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git ~/bgutil-ytdlp-pot-provider
+          BGUTIL_VER=$(python3 -c "import importlib.metadata; print(importlib.metadata.version('bgutil-ytdlp-pot-provider'))")
+          echo "[*] bgutil plugin version: $BGUTIL_VER"
+          git clone --single-branch --branch "$BGUTIL_VER" https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git ~/bgutil-ytdlp-pot-provider
           cd ~/bgutil-ytdlp-pot-provider/server
           npm ci
           npx tsc
