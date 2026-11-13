@@ -231,20 +231,40 @@ def setup_args() -> argparse.Namespace:
     return args
 
 
+def sync_cookies_secret(verbose: bool = False) -> None:
+    """
+    Upload local cookies.txt to GitHub as the YOUTUBE_COOKIES secret.
+
+    The content is base64-encoded before upload (single line, shell-safe) and
+    piped via stdin, so the cookie content never appears in git, in argv, or
+    in workflow inputs. The workflow decodes it back into cookies.txt.
+    """
+    if not os.path.exists(COOKIE_FILE):
+        print(f"[!] Warning: {COOKIE_FILE} not found. The workflow will run without fresh cookies.")
+        return
+    if os.path.getsize(COOKIE_FILE) == 0:
+        print(f"[!] Warning: {COOKIE_FILE} exists but is empty. Skipping cookie sync.")
+        return
+    if verbose:
+        print(f"[*] Syncing {COOKIE_FILE} to GitHub secret YOUTUBE_COOKIES ...")
+    result = subprocess.run(
+        f"base64 -w0 {COOKIE_FILE} | gh secret set YOUTUBE_COOKIES",
+        shell=True,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        print("[*] Cookies synced to GitHub secret.")
+    else:
+        print(f"[!] Warning: failed to sync cookies secret: {result.stderr.strip()}")
+        print("    The workflow may fail on the runner if fresh cookies are required.")
+
+
 def trigger_github_action(args: argparse.Namespace) -> None:
     """
     Trigger the remote workflow via GitHub CLI.
     """
-    cookies_b64 = None
-    if os.path.exists(COOKIE_FILE):
-        if os.path.getsize(COOKIE_FILE) == 0:
-            print(f"[!] Warning: {COOKIE_FILE} exists but is empty. Skipping cookie sync.")
-        else:
-            if args.verbose:
-                print(f"[*] Reading {COOKIE_FILE} and base64-encoding for workflow input...")
-            import base64
-            with open(COOKIE_FILE, 'rb') as f:
-                cookies_b64 = base64.b64encode(f.read()).decode('ascii')
+    sync_cookies_secret(args.verbose)
 
     cmd: str = (
         f"gh workflow run {WORKFLOW_FILE} "
@@ -253,10 +273,6 @@ def trigger_github_action(args: argparse.Namespace) -> None:
         f'-f download_type="{args.mode}" '
         f'-f storage_provider="{args.storage}" '
     )
-
-    # Pass cookies_b64 as workflow input (single-line base64, safe for bash)
-    if cookies_b64:
-        cmd += f'-f cookies_b64="{cookies_b64}" '
 
     # Pass custom filename if set
     if getattr(args, "filename", None):

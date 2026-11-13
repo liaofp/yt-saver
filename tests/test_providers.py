@@ -69,13 +69,117 @@ class TestOnedriveProvider(unittest.TestCase):
             "---RESULT_END---"
         )
         provider = OnedriveProvider(_make_config())
+        # Place a valid non-empty media-like file so download verification passes
+        with open(os.path.join(provider.download_dir, "test.opus"), "wb") as f:
+            f.write(b"OggS\x00\x02fake-opus-content")
         provider.handle_result(logs, token="fake_token")
         calls = mock_subprocess.call_args_list
-        self.assertTrue(len(calls) >= 2)
-        # First call: rclone copy
+        self.assertEqual(len(calls), 3)
+        # First call: rclone copy, then deletefile, then lsjson verification
         self.assertIn("copy", calls[0][0][0])
-        # Second call: rclone deletefile
         self.assertIn("deletefile", calls[1][0][0])
+        self.assertIn("lsjson", calls[2][0][0])
+
+    @mock.patch("builtins.print")
+    @mock.patch("providers.onedrive.subprocess.run")
+    def test_copy_failure_still_cleans_cloud(
+        self, mock_subprocess: mock.MagicMock, mock_print: mock.MagicMock
+    ) -> None:
+        from subprocess import CalledProcessError
+
+        logs: str = (
+            "---RESULT_START---\n"
+            "ITEM_ID: i789\n"
+            "FILE_NAME: test.opus\n"
+            "---RESULT_END---"
+        )
+        mock_subprocess.side_effect = [
+            CalledProcessError(1, ["rclone", "copy"]),  # download fails
+            mock.MagicMock(returncode=0),  # deletefile succeeds
+            mock.MagicMock(returncode=1, stdout=""),  # lsjson confirms removal
+        ]
+        provider = OnedriveProvider(_make_config())
+        provider.handle_result(logs, token="fake_token")
+        printed = " ".join(str(call) for call in mock_print.call_args_list)
+        self.assertIn("Rclone copy failed", printed)
+        self.assertIn("Cloud file removed", printed)
+        cmds = [c[0][0] for c in mock_subprocess.call_args_list]
+        self.assertIn("deletefile", cmds[1])
+
+    @mock.patch("builtins.print")
+    @mock.patch("providers.onedrive.subprocess.run")
+    def test_cleanup_failure_warns(
+        self, mock_subprocess: mock.MagicMock, mock_print: mock.MagicMock
+    ) -> None:
+        from subprocess import CalledProcessError
+
+        logs: str = (
+            "---RESULT_START---\n"
+            "ITEM_ID: i789\n"
+            "FILE_NAME: test.opus\n"
+            "---RESULT_END---"
+        )
+        mock_subprocess.side_effect = [
+            mock.MagicMock(returncode=0),  # copy succeeds
+            CalledProcessError(1, ["rclone", "deletefile"]),  # delete attempt 1
+            CalledProcessError(1, ["rclone", "deletefile"]),  # delete attempt 2
+            mock.MagicMock(returncode=0, stdout='[{"Name": "test.opus"}]'),  # still there
+        ]
+        provider = OnedriveProvider(_make_config())
+        with open(os.path.join(provider.download_dir, "test.opus"), "wb") as f:
+            f.write(b"OggS\x00\x02fake-opus-content")
+        provider.handle_result(logs, token="fake_token")
+        printed = " ".join(str(call) for call in mock_print.call_args_list)
+        self.assertIn("Retrieval successful", printed)
+        self.assertIn("may still exist", printed)
+
+    @mock.patch("builtins.print")
+    @mock.patch("providers.onedrive.subprocess.run")
+    def test_zero_byte_download_rejected(
+        self, mock_subprocess: mock.MagicMock, mock_print: mock.MagicMock
+    ) -> None:
+        logs: str = (
+            "---RESULT_START---\n"
+            "ITEM_ID: i789\n"
+            "FILE_NAME: test.opus\n"
+            "---RESULT_END---"
+        )
+        provider = OnedriveProvider(_make_config())
+        # Simulate rclone "succeeding" but leaving an empty file behind
+        open(os.path.join(provider.download_dir, "test.opus"), "wb").close()
+        provider.handle_result(logs, token="fake_token")
+        printed = " ".join(str(call) for call in mock_print.call_args_list)
+        self.assertIn("verification failed", printed)
+        self.assertNotIn("Retrieval successful", printed)
+        # Broken cloud copy must still be cleaned up
+        delete_calls = [
+            c for c in mock_subprocess.call_args_list if "deletefile" in c[0][0]
+        ]
+        self.assertEqual(len(delete_calls), 1)
+
+    @mock.patch("builtins.print")
+    @mock.patch("providers.onedrive.subprocess.run")
+    def test_html_error_page_rejected(
+        self, mock_subprocess: mock.MagicMock, mock_print: mock.MagicMock
+    ) -> None:
+        logs: str = (
+            "---RESULT_START---\n"
+            "ITEM_ID: i789\n"
+            "FILE_NAME: test.opus\n"
+            "---RESULT_END---"
+        )
+        provider = OnedriveProvider(_make_config())
+        # OneDrive returns an HTML error page (HTTP 200) for broken items
+        with open(os.path.join(provider.download_dir, "test.opus"), "wb") as f:
+            f.write(b"<html><body>An unexpected error has occurred.</body></html>")
+        provider.handle_result(logs, token="fake_token")
+        printed = " ".join(str(call) for call in mock_print.call_args_list)
+        self.assertIn("verification failed", printed)
+        self.assertNotIn("Retrieval successful", printed)
+        delete_calls = [
+            c for c in mock_subprocess.call_args_list if "deletefile" in c[0][0]
+        ]
+        self.assertEqual(len(delete_calls), 1)
 
     def test_handle_result_no_match(self) -> None:
         provider = OnedriveProvider(_make_config())

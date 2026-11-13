@@ -72,16 +72,15 @@ class TestSetupArgs(unittest.TestCase):
 
 
 class TestTriggerGithubAction(unittest.TestCase):
+    @mock.patch("youtube.sync_cookies_secret")
     @mock.patch("youtube.run_command")
     @mock.patch("youtube.monitor_workflow")
-    @mock.patch("os.path.exists")
     def test_trigger_success(
         self,
-        mock_exists: mock.MagicMock,
         mock_monitor: mock.MagicMock,
         mock_run: mock.MagicMock,
+        mock_sync: mock.MagicMock,
     ) -> None:
-        mock_exists.return_value = False
         mock_run.return_value = ("", 0)
 
         args = argparse.Namespace(
@@ -96,14 +95,14 @@ class TestTriggerGithubAction(unittest.TestCase):
         )
         youtube.trigger_github_action(args)
         mock_run.assert_called()
+        mock_sync.assert_called_once_with(False)
         mock_monitor.assert_called_once_with("main", "onedrive", None, False)
 
+    @mock.patch("youtube.sync_cookies_secret")
     @mock.patch("youtube.run_command")
-    @mock.patch("os.path.exists")
     def test_trigger_failure(
-        self, mock_exists: mock.MagicMock, mock_run: mock.MagicMock
+        self, mock_run: mock.MagicMock, mock_sync: mock.MagicMock
     ) -> None:
-        mock_exists.return_value = False
         mock_run.return_value = ("error", 1)
 
         args = argparse.Namespace(
@@ -119,6 +118,35 @@ class TestTriggerGithubAction(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             youtube.trigger_github_action(args)
         self.assertEqual(cm.exception.code, 1)
+
+    @mock.patch("youtube.subprocess.run")
+    @mock.patch("os.path.exists")
+    @mock.patch("os.path.getsize")
+    def test_sync_cookies_secret_success(
+        self,
+        mock_getsize: mock.MagicMock,
+        mock_exists: mock.MagicMock,
+        mock_run: mock.MagicMock,
+    ) -> None:
+        mock_exists.return_value = True
+        mock_getsize.return_value = 100
+        mock_run.return_value = mock.MagicMock(returncode=0)
+
+        youtube.sync_cookies_secret(verbose=False)
+        cmd = mock_run.call_args[0][0]
+        self.assertIn("gh secret set YOUTUBE_COOKIES", cmd)
+        self.assertIn("cookies.txt", cmd)
+        self.assertNotIn("cookies_b64", cmd)
+
+    @mock.patch("youtube.subprocess.run")
+    @mock.patch("os.path.exists")
+    def test_sync_cookies_secret_missing_file(
+        self, mock_exists: mock.MagicMock, mock_run: mock.MagicMock
+    ) -> None:
+        mock_exists.return_value = False
+
+        youtube.sync_cookies_secret(verbose=False)
+        mock_run.assert_not_called()
 
 
 class TestMonitorWorkflow(unittest.TestCase):

@@ -148,32 +148,36 @@ class TestOnedriveEndToEnd(unittest.TestCase):
         cfg = _make_config()
         provider = OnedriveProvider(cfg)
         logs = _onedrive_logs(item_id="i789", file_name="test.opus")
+        # Place a valid file so post-download verification passes
+        with open(os.path.join(provider.download_dir, "test.opus"), "wb") as f:
+            f.write(b"OggS\x00\x02fake-opus-content")
         provider.handle_result(logs, token="fake_token")
 
         calls = mock_subprocess.call_args_list
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 3)
 
-        # First call: rclone copy
+        # First call: rclone copy, then deletefile, then lsjson verification
         self.assertEqual(calls[0][0][0][0], "rclone")
         self.assertIn("copy", calls[0][0][0])
 
-        # Second call: rclone deletefile
         self.assertEqual(calls[1][0][0][0], "rclone")
         self.assertIn("deletefile", calls[1][0][0])
+
+        self.assertEqual(calls[2][0][0][0], "rclone")
+        self.assertIn("lsjson", calls[2][0][0])
 
     @mock.patch("providers.onedrive.subprocess.run")
     def test_rclone_failure_handled(
         self, mock_subprocess: mock.MagicMock
     ) -> None:
-        mock_subprocess.side_effect = [
-            mock.MagicMock(),  # copy succeeds
-            Exception("rclone deletefile failed"),  # delete throws (but is caught via check=True)
-        ]
         # Actually subprocess.run with check=True raises CalledProcessError
         from subprocess import CalledProcessError
+
         mock_subprocess.side_effect = [
-            mock.MagicMock(returncode=0),
-            CalledProcessError(1, ["rclone", "deletefile"]),
+            mock.MagicMock(returncode=0),  # copy "succeeds" but leaves no file
+            CalledProcessError(1, ["rclone", "deletefile"]),  # cleanup attempt 1
+            CalledProcessError(1, ["rclone", "deletefile"]),  # cleanup attempt 2
+            mock.MagicMock(returncode=0, stdout=""),  # lsjson confirms removal
         ]
 
         cfg = _make_config()
