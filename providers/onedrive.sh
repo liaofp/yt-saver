@@ -32,34 +32,40 @@ sed -i 's/\[.*\]/\[tmp_od\]/' "$CONF_PATH"
 
 echo "[*] Starting upload (rclone v$(rclone version --short))..."
 
-# 3. Execute upload; abort on failure WITHOUT printing a result block,
-#    so the local side knows the upload failed instead of retrieving garbage
-if ! rclone --config "$CONF_PATH" copy "$FILE_PATH" tmp_od:uploads/ -v --onedrive-chunk-size 10M --transfers 1; then
-    fail "rclone upload failed for $FILE_PATH"
-fi
-
 FILE_NAME=$(basename "$FILE_PATH")
-
-# 4. Verify the upload: the remote item must exist and its size must match.
-#    OneDrive Personal occasionally stores uploads with size 0 (server-side
-#    metadata glitch); without this check a corrupted item would be reported
-#    as a success and the local retrieval would fail with
-#    "corrupted on transfer: sizes differ".
 LOCAL_SIZE=$(stat -c %s "$FILE_PATH")
-REMOTE_JSON=$(rclone --config "$CONF_PATH" lsjson "tmp_od:uploads/$FILE_NAME" 2>/dev/null)
-REMOTE_SIZE=$(echo "$REMOTE_JSON" | jq -r '.[0].Size // empty' 2>/dev/null)
 
-if [ -z "$REMOTE_SIZE" ]; then
-    fail "upload verification failed - remote file not found: $FILE_NAME"
+# 3. Execute upload with retries.
+#    OneDrive Personal upload sessions occasionally fail with HTTP 401
+#    BadContextToken / 503 (Microsoft-side degradation), or even "succeed"
+#    leaving a size-0 item. Each attempt is verified by comparing the remote
+#    size with the local one; broken items are removed before retrying.
+UPLOAD_OK=0
+for attempt in 1 2 3; do
+    if rclone --config "$CONF_PATH" copy "$FILE_PATH" tmp_od:uploads/ -v --onedrive-chunk-size 10M --transfers 1; then
+        REMOTE_JSON=$(rclone --config "$CONF_PATH" lsjson "tmp_od:uploads/$FILE_NAME" 2>/dev/null)
+        REMOTE_SIZE=$(echo "$REMOTE_JSON" | jq -r '.[0].Size // empty' 2>/dev/null)
+        if [ -n "$REMOTE_SIZE" ] && [ "$REMOTE_SIZE" = "$LOCAL_SIZE" ]; then
+            UPLOAD_OK=1
+            break
+        fi
+        # rclone reported success but the remote item is broken (e.g. size 0)
+        rclone --config "$CONF_PATH" deletefile "tmp_od:uploads/$FILE_NAME" > /dev/null 2>&1 || true
+        echo "[!] Upload verification failed (local: $LOCAL_SIZE, remote: ${REMOTE_SIZE:-missing}); broken item removed."
+    else
+        echo "[!] Upload attempt $attempt failed (rclone copy error)."
+    fi
+    if [ "$attempt" -lt 3 ]; then
+        echo "[*] Retrying in 30s..."
+        sleep 30
+    fi
+done
+
+if [ "$UPLOAD_OK" -ne 1 ]; then
+    fail "upload failed verification after 3 attempts (OneDrive upload sessions may be degraded; retry later or use another storage provider)"
 fi
 
-if [ "$REMOTE_SIZE" != "$LOCAL_SIZE" ]; then
-    # Remove the broken remote item so it cannot shadow future runs
-    rclone --config "$CONF_PATH" deletefile "tmp_od:uploads/$FILE_NAME" > /dev/null 2>&1 || true
-    fail "upload verification failed - size mismatch (local: $LOCAL_SIZE, remote: $REMOTE_SIZE), broken cloud file removed"
-fi
-
-# 5. Obtain Item ID of the uploaded file (matched by name, not "first item in folder")
+# 4. Obtain Item ID of the uploaded file (matched by name, not "first item in folder")
 ITEM_ID=$(echo "$REMOTE_JSON" | jq -r '.[0].ID // empty' 2>/dev/null)
 
 if [ -z "$ITEM_ID" ]; then
