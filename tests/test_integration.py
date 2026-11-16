@@ -166,15 +166,20 @@ class TestOnedriveEndToEnd(unittest.TestCase):
         self.assertEqual(calls[2][0][0][0], "rclone")
         self.assertIn("lsjson", calls[2][0][0])
 
+    @mock.patch("providers.onedrive.time.sleep")
     @mock.patch("providers.onedrive.subprocess.run")
     def test_rclone_failure_handled(
-        self, mock_subprocess: mock.MagicMock
+        self, mock_subprocess: mock.MagicMock, mock_sleep: mock.MagicMock
     ) -> None:
         # Actually subprocess.run with check=True raises CalledProcessError
         from subprocess import CalledProcessError
 
         mock_subprocess.side_effect = [
-            mock.MagicMock(returncode=0),  # copy "succeeds" but leaves no file
+            mock.MagicMock(returncode=0),  # 5 copy attempts "succeed" but
+            mock.MagicMock(returncode=0),  # leave no file behind, so each
+            mock.MagicMock(returncode=0),  # verification fails and retries
+            mock.MagicMock(returncode=0),
+            mock.MagicMock(returncode=0),
             CalledProcessError(1, ["rclone", "deletefile"]),  # cleanup attempt 1
             CalledProcessError(1, ["rclone", "deletefile"]),  # cleanup attempt 2
             mock.MagicMock(returncode=0, stdout=""),  # lsjson confirms removal

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import os
 import json
+import time
 import subprocess
 from typing import Optional
 from .base import StorageProvider
@@ -73,6 +74,15 @@ def _verify_download(local_path: str) -> Optional[str]:
 
 
 class OnedriveProvider(StorageProvider):
+    @staticmethod
+    def _discard_bad_download(local_path: str) -> None:
+        """Remove a failed/partial download so the next attempt starts clean."""
+        try:
+            if os.path.exists(local_path):
+                os.remove(local_path)
+        except OSError:
+            pass
+
     def handle_result(self, logs: str, token: Optional[str] = None) -> None:
         """
         Definitive version: call the locally installed rclone directly.
@@ -103,43 +113,50 @@ class OnedriveProvider(StorageProvider):
         if not os.path.exists(self.download_dir):
             os.makedirs(self.download_dir)
 
-        # 3. Use rclone copy to fetch the file
-        # rclone automatically reads ~/.config/rclone/rclone.conf and handles token refresh
-        print("📥 Retrieving file to local machine...")
-        try:
-            # -P shows progress, --inplace reduces temporary files
-            subprocess.run(
-                ["rclone", "copy", remote_path, self.download_dir, "-P"],
-                check=True,
-            )
-        except subprocess.CalledProcessError as e:
-            print(
-                "❌ Rclone copy failed. Please ensure your local rclone config "
-                "has a remote named 'onedrive'"
-            )
-            print(f"Details: {e}")
+        # 3. Download with retries. OneDrive's download endpoint intermittently
+        #    returns a small HTML error page (HTTP 200) instead of the content
+        #    (same backend degradation as the broken upload sessions), so each
+        #    attempt is verified and bad local files are discarded and retried.
+        max_attempts = 5
+        downloaded = False
+        for attempt in range(1, max_attempts + 1):
+            print(f"📥 Retrieving file to local machine... (attempt {attempt}/{max_attempts})")
+            try:
+                # --retries 1: retry here, where we can verify each result
+                subprocess.run(
+                    ["rclone", "copy", remote_path, self.download_dir, "-P", "--retries", "1"],
+                    check=True,
+                )
+            except subprocess.CalledProcessError as e:
+                print(f"   rclone copy failed: {e}")
+                self._discard_bad_download(local_path)
+                if attempt < max_attempts:
+                    time.sleep(5)
+                    continue
+                break
+            problem = _verify_download(local_path)
+            if problem is None:
+                downloaded = True
+                break
+            print(f"   Downloaded file verification failed: {problem}")
+            self._discard_bad_download(local_path)
+            if attempt < max_attempts:
+                print("   Retrying...")
+                time.sleep(5)
+
+        # 4. Handle total download failure
+        if not downloaded:
+            print("❌ Failed to retrieve the file from OneDrive after 5 attempts.")
             print(
                 "   If rclone reported 'corrupted on transfer: sizes differ', the "
-                "cloud file itself is broken: OneDrive Personal sometimes stores "
-                "uploads with size 0, and downloads of such files return an HTML "
-                "error page. Re-run the task to fetch it again."
+                "download endpoint returned an HTML error page instead of the "
+                "content (transient OneDrive backend issue). Re-run the task later."
             )
             print("[*] Removing the cloud copy (it cannot be retrieved anyway)...")
             if _remove_remote(remote_path):
                 print("🧹 Cloud file removed.")
             else:
                 print(f"⚠️ Could not confirm cloud file removal: {remote_path}")
-            return
-
-        # 4. Verify the downloaded file before declaring success
-        problem = _verify_download(local_path)
-        if problem is not None:
-            print(f"❌ Downloaded file verification failed: {problem}")
-            print("   Removing the broken cloud copy; please re-run this task.")
-            if _remove_remote(remote_path):
-                print("🧹 Broken cloud file removed.")
-            else:
-                print(f"⚠️ Could not confirm removal of broken cloud file: {remote_path}")
             return
 
         print(f"✅ Retrieval successful: {local_path}")

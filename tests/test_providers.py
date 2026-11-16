@@ -80,10 +80,59 @@ class TestOnedriveProvider(unittest.TestCase):
         self.assertIn("deletefile", calls[1][0][0])
         self.assertIn("lsjson", calls[2][0][0])
 
+    @mock.patch("providers.onedrive.time.sleep")
+    @mock.patch("builtins.print")
+    @mock.patch("providers.onedrive.subprocess.run")
+    def test_copy_failure_recovers_on_retry(
+        self,
+        mock_subprocess: mock.MagicMock,
+        mock_print: mock.MagicMock,
+        mock_sleep: mock.MagicMock,
+    ) -> None:
+        from subprocess import CalledProcessError
+
+        logs: str = (
+            "---RESULT_START---\n"
+            "ITEM_ID: i789\n"
+            "FILE_NAME: test.opus\n"
+            "---RESULT_END---"
+        )
+        provider = OnedriveProvider(_make_config())
+        copy_calls = {"n": 0}
+
+        def fake_run(cmd, *args, **kwargs):
+            if "copy" in cmd:
+                copy_calls["n"] += 1
+                if copy_calls["n"] == 1:
+                    raise CalledProcessError(1, cmd)
+                with open(
+                    os.path.join(provider.download_dir, "test.opus"), "wb"
+                ) as f:
+                    f.write(b"OggS\x00\x02fake-opus-content")
+                return mock.MagicMock(returncode=0)
+            if "deletefile" in cmd:
+                return mock.MagicMock(returncode=0)
+            if "lsjson" in cmd:
+                return mock.MagicMock(returncode=1, stdout="")
+            return mock.MagicMock(returncode=0)
+
+        mock_subprocess.side_effect = fake_run
+        provider.handle_result(logs, token="fake_token")
+        printed = " ".join(str(call) for call in mock_print.call_args_list)
+        self.assertIn("attempt 2", printed)
+        self.assertIn("Retrieval successful", printed)
+        # copy x2, then deletefile (cleanup), then lsjson (verify removal)
+        cmds = [c[0][0] for c in mock_subprocess.call_args_list]
+        self.assertEqual(cmds[2][1], "deletefile")
+
+    @mock.patch("providers.onedrive.time.sleep")
     @mock.patch("builtins.print")
     @mock.patch("providers.onedrive.subprocess.run")
     def test_copy_failure_still_cleans_cloud(
-        self, mock_subprocess: mock.MagicMock, mock_print: mock.MagicMock
+        self,
+        mock_subprocess: mock.MagicMock,
+        mock_print: mock.MagicMock,
+        mock_sleep: mock.MagicMock,
     ) -> None:
         from subprocess import CalledProcessError
 
@@ -94,17 +143,21 @@ class TestOnedriveProvider(unittest.TestCase):
             "---RESULT_END---"
         )
         mock_subprocess.side_effect = [
-            CalledProcessError(1, ["rclone", "copy"]),  # download fails
+            CalledProcessError(1, ["rclone", "copy"]),  # attempt 1
+            CalledProcessError(1, ["rclone", "copy"]),  # attempt 2
+            CalledProcessError(1, ["rclone", "copy"]),  # attempt 3
+            CalledProcessError(1, ["rclone", "copy"]),  # attempt 4
+            CalledProcessError(1, ["rclone", "copy"]),  # attempt 5
             mock.MagicMock(returncode=0),  # deletefile succeeds
             mock.MagicMock(returncode=1, stdout=""),  # lsjson confirms removal
         ]
         provider = OnedriveProvider(_make_config())
         provider.handle_result(logs, token="fake_token")
         printed = " ".join(str(call) for call in mock_print.call_args_list)
-        self.assertIn("Rclone copy failed", printed)
+        self.assertIn("Failed to retrieve", printed)
         self.assertIn("Cloud file removed", printed)
         cmds = [c[0][0] for c in mock_subprocess.call_args_list]
-        self.assertIn("deletefile", cmds[1])
+        self.assertEqual(cmds[5][1], "deletefile")
 
     @mock.patch("builtins.print")
     @mock.patch("providers.onedrive.subprocess.run")
@@ -133,10 +186,14 @@ class TestOnedriveProvider(unittest.TestCase):
         self.assertIn("Retrieval successful", printed)
         self.assertIn("may still exist", printed)
 
+    @mock.patch("providers.onedrive.time.sleep")
     @mock.patch("builtins.print")
     @mock.patch("providers.onedrive.subprocess.run")
     def test_zero_byte_download_rejected(
-        self, mock_subprocess: mock.MagicMock, mock_print: mock.MagicMock
+        self,
+        mock_subprocess: mock.MagicMock,
+        mock_print: mock.MagicMock,
+        mock_sleep: mock.MagicMock,
     ) -> None:
         logs: str = (
             "---RESULT_START---\n"
@@ -157,10 +214,14 @@ class TestOnedriveProvider(unittest.TestCase):
         ]
         self.assertEqual(len(delete_calls), 1)
 
+    @mock.patch("providers.onedrive.time.sleep")
     @mock.patch("builtins.print")
     @mock.patch("providers.onedrive.subprocess.run")
     def test_html_error_page_rejected(
-        self, mock_subprocess: mock.MagicMock, mock_print: mock.MagicMock
+        self,
+        mock_subprocess: mock.MagicMock,
+        mock_print: mock.MagicMock,
+        mock_sleep: mock.MagicMock,
     ) -> None:
         logs: str = (
             "---RESULT_START---\n"
